@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-cursor="bold">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Daily tasks, progress, materials and reports for fire alarm and fire fighting sites across the UAE." />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Firestone — Site Manager</title>
+    <script>
+      // Apply the saved theme before first paint so dark mode never flashes white.
+      (function () {
+        var pref = { theme: 'system', boldCursor: true };
+        try {
+          var saved = JSON.parse(localStorage.getItem('riser-ui') || '{}').state;
+          if (saved) pref = Object.assign(pref, saved);
+        } catch (e) {}
+        var dark = pref.theme === 'dark' || (pref.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.dataset.theme = dark ? 'dark' : 'light';
+        root.dataset.cursor = pref.boldCursor === false ? 'system' : 'bold';
+        if (dark) document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0f1114');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

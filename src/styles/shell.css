@@ -1,0 +1,454 @@
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+/* ---------- Desktop rail ---------- */
+
+.rail {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100dvh;
+  padding: 14px 10px 12px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.brand {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 2px 0 14px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+  text-decoration: none;
+  flex: none;
+}
+
+.brand__logo {
+  --mark: 46px;
+  --name: 10px;
+}
+
+/* ---------- Logo (light / dark ink variants) ---------- */
+
+.logo {
+  display: inline-block;
+  line-height: 0;
+}
+
+/* ---------- Mark + FIRESTONE lockup ---------- */
+
+.lockup {
+  display: inline-grid;
+  justify-items: center;
+  align-items: center;
+  gap: calc(var(--mark, 40px) * 0.16);
+  text-decoration: none;
+}
+
+.lockup--row {
+  grid-auto-flow: column;
+  gap: calc(var(--mark, 28px) * 0.3);
+}
+
+.lockup__mark {
+  width: var(--mark, 40px);
+}
+
+.brand-name {
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 800;
+  font-size: var(--name, 12px);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.brand-name__fire {
+  color: #3b9850;
+}
+
+.logo__img {
+  width: 100%;
+  height: auto;
+}
+
+.logo__img--dark {
+  display: none;
+}
+
+:root[data-theme='dark'] .logo__img--light {
+  display: none;
+}
+
+:root[data-theme='dark'] .logo__img--dark {
+  display: block;
+}
+
+.rail__link {
+  position: relative;
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 10px 2px 9px;
+  border-radius: var(--r-md);
+  color: var(--graphite);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rail__link svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.rail__link:hover {
+  color: var(--ink);
+  background: var(--ground);
+}
+
+.rail__link.active {
+  color: var(--ink);
+  background: var(--ground);
+}
+
+.rail__link.active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+
+.rail__badge {
+  position: absolute;
+  top: 6px;
+  right: 14px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--flame-solid);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* short windows: tighten the rail so Settings stays on screen */
+@media (max-height: 780px) {
+  .rail__link {
+    padding: 7px 2px 6px;
+    gap: 3px;
+  }
+  .brand {
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+  .brand__logo {
+    --mark: 38px;
+  }
+}
+
+.rail__spacer {
+  flex: 1;
+  min-height: 12px;
+}
+
+.main {
+  min-width: 0;
+}
+
+/* ---------- Mobile top bar & tab bar ---------- */
+
+.topbar,
+.tabbar {
+  display: none;
+}
+
+.tabbar__badge {
+  position: absolute;
+  top: 7px;
+  left: calc(50% + 6px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--flame-solid);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rail {
+    display: none;
+  }
+  .main {
+    padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: calc(var(--topbar-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 8px 0 16px;
+    background: var(--bar-bg);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .topbar__brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+    text-decoration: none;
+  }
+  .topbar__lockup {
+    --mark: 32px;
+    --name: 17px;
+  }
+  .tabbar {
+    position: fixed;
+    z-index: 50;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    padding: 0 4px env(safe-area-inset-bottom);
+    background: var(--bar-bg);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--rule);
+  }
+  .tabbar a,
+  .tabbar button {
+    position: relative;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 4px;
+    border: 0;
+    background: none;
+    color: var(--graphite);
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .tabbar svg {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.8;
+  }
+  .tabbar .active {
+    color: var(--ink);
+  }
+  .tabbar .active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 30%;
+    right: 30%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--brand);
+  }
+}
+
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.more-grid a,
+.more-grid button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  text-align: left;
+}
+
+.more-grid svg {
+  width: 20px;
+  height: 20px;
+  color: var(--graphite);
+}
+
+/* ---------- Page scaffolding ---------- */
+
+.page {
+  width: 100%;
+  max-width: 1320px;
+  padding: 28px 32px 56px;
+}
+
+.page--full {
+  max-width: none;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  margin-bottom: 22px;
+}
+
+.page-head__title {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .page {
+    padding: 18px 16px 32px;
+  }
+  .page-head {
+    margin-bottom: 16px;
+  }
+  .h1 {
+    font-size: var(--fs-22);
+  }
+}
+
+/* ---------- Date stepper ---------- */
+
+.datestep {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+}
+
+.datestep button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--graphite);
+}
+
+.datestep button:hover {
+  color: var(--ink);
+  background: var(--ground);
+}
+
+.datestep svg {
+  width: 16px;
+  height: 16px;
+}
+
+.datestep label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 128px;
+  height: 100%;
+  padding: 0 8px;
+  border-inline: 1px solid var(--rule);
+  font-weight: 650;
+  font-size: var(--fs-14);
+  cursor: pointer;
+}
+
+.datestep input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.datestep .today-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--brand-ink);
+  text-transform: uppercase;
+  margin-left: 6px;
+}
+
+@media (pointer: coarse) {
+  .datestep {
+    height: 44px;
+  }
+  .datestep button {
+    width: 44px;
+  }
+}
+
+/* ---------- Loading ---------- */
+
+.boot {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  gap: 12px;
+}
+
+.boot__logo {
+  --mark: 96px;
+  --name: 20px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
