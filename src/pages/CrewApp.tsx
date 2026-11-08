@@ -88,12 +88,12 @@ function WhoAreYou({ onPick }: { onPick: (p: Person) => void }) {
 
 function MyDay({ me }: { me: Person }) {
   const t = today();
-  const d = useStore(useShallow((s) => ({ tasks: s.tasks, workItems: s.workItems, people: s.people, allocations: s.allocations, sites: s.sites, logs: s.logs })));
+  const d = useStore(useShallow((s) => ({ tasks: s.tasks, scopeItems: s.scopeItems, people: s.people, allocations: s.allocations, sites: s.sites, logs: s.logs })));
   const saveLog = useStore((s) => s.saveLog);
   const [issue, setIssue] = useState<string | null>(null);
   const alloc = d.allocations.find((a) => a.date === t && a.personId === me.id && a.attendance === 'present');
   const site = d.sites.find((s) => s.id === alloc?.siteId);
-  const items = new Map(d.workItems.map((w) => [w.id, w]));
+  const items = new Map(d.scopeItems.map((w) => [w.id, w]));
   const mine = d.tasks.filter((x) => x.date === t && (x.assignees.includes(me.id) || (me.role === 'foreman' && x.siteId === site?.id)));
   const done = mine.filter((x) => x.status === 'done').length;
 
@@ -124,7 +124,7 @@ function MyDay({ me }: { me: Person }) {
       {mine.length ? (
         <div className="task-list">
           {mine.map((x) => (
-            <TaskCard key={x.id} task={{ ...x }} item={x.workItemId ? items.get(x.workItemId) : undefined} people={d.people} />
+            <TaskCard key={x.id} task={{ ...x }} item={x.scopeItemId ? items.get(x.scopeItemId) : undefined} people={d.people} />
           ))}
         </div>
       ) : (

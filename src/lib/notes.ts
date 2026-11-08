@@ -1,6 +1,6 @@
-import type { Person, Site } from '../types';
+import type { Person, ScopeItem, Site } from '../types';
 import type { Data } from '../store/store';
-import { materialRows, progressDelta } from './progress';
+import { materialRows, progressDelta, sortScope } from './progress';
 import { firstName, fmtDate, fmtDay, num, placeName, today } from './util';
 
 export const ROLE_LABEL = { foreman: 'Foreman', technician: 'Technician', helper: 'Helper' } as const;
@@ -30,10 +30,10 @@ export function siteDailyNote(site: Site, data: Data, date: string) {
   const crew = crewOn(data, site.id, date);
   const cb = crewBreakdown(crew);
   const tasks = data.tasks.filter((t) => t.siteId === site.id && t.date === date);
-  const items = new Map(data.workItems.map((w) => [w.id, w]));
+  const ticked = data.scopeItems.filter((i) => i.siteId === site.id && i.doneOn === date);
   const log = data.logs.find((l) => l.siteId === site.id && l.date === date);
   const received = data.txns.filter((t) => t.siteId === site.id && t.date === date && t.type === 'in');
-  const { rows } = materialRows(site, data);
+  const rows = materialRows(site, data);
   const names = new Map(rows.map((r) => [r.key, r]));
   const short = rows.filter((r) => r.state === 'short' || r.state === 'low');
   const who = (ids: string[]) => ids.map((id) => firstName(data.people.find((x) => x.id === id)?.name ?? '')).filter(Boolean).join(', ');
@@ -44,11 +44,11 @@ export function siteDailyNote(site: Site, data: Data, date: string) {
   L.push(`${placeName(site)}`);
   L.push('');
   L.push('*Progress*');
+  L.push(`Scope list: ${d.now.done} of ${d.now.total} done — ${p(d.now.overall)}${signedPct(d.overall)}`);
   const parts: string[] = [];
-  if (d.now.FA !== null) parts.push(`FA ${p(d.now.FA)}${signedPct(d.FA)}`);
-  if (d.now.FF !== null) parts.push(`FF ${p(d.now.FF)}${signedPct(d.FF)}`);
-  L.push(parts.join(' · '));
-  if (parts.length > 1) L.push(`Overall ${p(d.now.overall)}${signedPct(d.overall)}`);
+  if (d.now.FA !== null) parts.push(`FA ${p(d.now.FA)}`);
+  if (d.now.FF !== null) parts.push(`FF ${p(d.now.FF)}`);
+  if (parts.length) L.push(parts.join(' · '));
   L.push('');
   L.push(`*Manpower: ${crew.length}*`);
   if (crew.length) {
@@ -60,12 +60,16 @@ export function siteDailyNote(site: Site, data: Data, date: string) {
     L.push('');
     L.push("*Today's work*");
     worked.forEach((t, i) => {
-      const w = t.workItemId ? items.get(t.workItemId) : undefined;
-      const qty = t.doneQty > 0 ? `: ${num(t.doneQty)}${w ? ` ${w.unit}` : ''}` : '';
       const state = t.status === 'done' ? ' ✅' : t.status === 'in-progress' ? ' (in progress)' : ' (planned)';
       const by = who(t.assignees);
-      L.push(`${i + 1}. ${t.title}${t.location ? ` — ${t.location}` : ''}${qty}${state}${by ? ` · ${by}` : ''}`);
+      L.push(`${i + 1}. ${t.title}${t.location ? ` — ${t.location}` : ''}${state}${by ? ` · ${by}` : ''}`);
     });
+  }
+  const tickedNotInTasks = ticked.filter((i) => !worked.some((t) => t.scopeItemId === i.id && t.status === 'done'));
+  if (tickedNotInTasks.length) {
+    L.push('');
+    L.push('*Also ticked off the scope list*');
+    tickedNotInTasks.forEach((i) => L.push(`✅ ${i.text}`));
   }
   const blocked = tasks.filter((t) => t.status === 'blocked');
   if (blocked.length) {
@@ -84,7 +88,7 @@ export function siteDailyNote(site: Site, data: Data, date: string) {
   if (short.length) {
     L.push('');
     L.push('*Materials needed*');
-    short.slice(0, 8).forEach((r) => L.push(`• ${r.name} — ${num(Math.max(r.toDeliver, r.estimate - r.used - r.onSite))} ${r.unit}${r.state === 'short' ? ' (none left on site)' : ' (running low)'}`));
+    short.slice(0, 8).forEach((r) => L.push(`• ${r.name} — ${num(Math.max(r.toDeliver, r.needed - r.used - r.onSite))} ${r.unit}${r.state === 'short' ? ' (none left on site)' : ' (running low)'}`));
   }
   if (log?.issues) {
     L.push('');
@@ -116,7 +120,7 @@ export function allSitesNote(data: Data, date: string) {
     total += crew.length;
     const blocked = data.tasks.filter((t) => t.siteId === s.id && t.date === date && t.status === 'blocked').length;
     L.push(`*${s.code} · ${s.name}*`);
-    const parts: string[] = [];
+    const parts: string[] = [`${d.now.done} of ${d.now.total} done`];
     if (d.now.FA !== null) parts.push(`FA ${p(d.now.FA)}`);
     if (d.now.FF !== null) parts.push(`FF ${p(d.now.FF)}`);
     L.push(`${parts.join(' · ')} · Overall ${p(d.now.overall)}${signedPct(d.overall)}`);
@@ -155,23 +159,57 @@ export function allocationNote(data: Data, date: string) {
 
 /** Request text for WhatsApp. With `items`, lists exactly those quantities; otherwise what's short and not yet asked for. */
 export function materialRequestNote(site: Site, data: Data, items?: { key: string; qty: number }[], ref = '', date = today()) {
-  const { rows } = materialRows(site, data);
+  const rows = materialRows(site, data);
   const want = items ? new Map(items.map((i) => [i.key, i.qty])) : null;
   const list = rows
     .map((r) => ({ r, qty: want ? (want.get(r.key) ?? 0) : r.toRequest }))
     .filter(({ r, qty }) => qty > 0 && (want || r.state === 'short' || r.state === 'low' || r.state === 'none'));
   const L: string[] = [`*MATERIAL REQUEST${ref ? ` ${ref}` : ''} — ${fmtDate(date)}*`, `*${site.name}* (${site.code})`, ''];
-  let last = '';
+  let last: string | null | undefined;
   for (const { r, qty } of list) {
-    if (r.group !== last) {
-      L.push(`_${r.group}_`);
-      last = r.group;
+    if (r.system !== last) {
+      L.push(`_${r.system === 'FA' ? 'Fire alarm' : r.system === 'FF' ? 'Fire fighting' : 'General'}_`);
+      last = r.system;
     }
     L.push(`• ${r.name} — ${num(qty)} ${r.unit}`);
   }
   L.push('');
   L.push(`Deliver to: ${placeName(site)}`);
   L.push(`— ${data.settings.engineerName}${data.settings.engineerPhone ? ` · ${data.settings.engineerPhone}` : ''}`);
+  return L.join('\n');
+}
+
+const KIND_TAG = { scope: '', variation: ' _(variation)_', found: ' _(found on site)_' } as const;
+
+/** The site's scope list as a message — pending work grouped by system, optionally with what's done */
+export function scopeListNote(site: Site, data: Data, which: 'pending' | 'all', date = today()) {
+  const items = sortScope(data.scopeItems.filter((i) => i.siteId === site.id));
+  const pending = items.filter((i) => !i.doneOn);
+  const done = items.filter((i) => i.doneOn);
+  const L: string[] = [`*SCOPE LIST — ${fmtDay(date)} ${date.slice(0, 4)}*`, `*${site.name}* (${site.code})`, ''];
+  L.push(`Done ${done.length} of ${items.length}${items.length ? ` (${Math.round((done.length / items.length) * 100)}%)` : ''}`);
+  const groups = (list: ScopeItem[], line: (i: ScopeItem) => string) => {
+    for (const [label, part] of [
+      ['Fire alarm', list.filter((i) => i.system === 'FA')],
+      ['Fire fighting', list.filter((i) => i.system === 'FF')],
+      ['General', list.filter((i) => !i.system)],
+    ] as const) {
+      if (!part.length) continue;
+      L.push(`_${label}_`);
+      part.forEach((i) => L.push(line(i)));
+    }
+  };
+  L.push('');
+  L.push(`*Pending (${pending.length})*`);
+  if (pending.length) groups(pending, (i) => `• ${i.text}${KIND_TAG[i.kind]}`);
+  else L.push('Nothing pending.');
+  if (which === 'all' && done.length) {
+    L.push('');
+    L.push(`*Done (${done.length})*`);
+    groups(done, (i) => `✅ ${i.text} — ${fmtDate(i.doneOn!)}`);
+  }
+  L.push('');
+  L.push(`— ${data.settings.engineerName}${data.settings.companyName ? `, ${data.settings.companyName}` : ''}`);
   return L.join('\n');
 }
 

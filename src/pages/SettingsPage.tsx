@@ -7,10 +7,13 @@ import { Logo } from '../components/Brand';
 import AiKeyCard from '../components/AiKeyCard';
 import { useUi, type ThemePref } from '../store/ui';
 import { downloadBlob, today } from '../lib/util';
+import { upgradeFromV1 } from '../store/v1/upgrade';
+import type { V1Data } from '../store/v1/types';
 
 interface Backup {
   app: 'firestone' | 'riser';
-  version: 1;
+  /** 1 = Version 1 of the app (device quantities), 2 = Version 2 (scope list) */
+  version: 1 | 2;
   exportedAt: string;
   data: Data;
   photos?: Record<string, { full: string; thumb: string }>;
@@ -38,7 +41,7 @@ export default function SettingsPage() {
     setBusy(true);
     try {
       const data = getData();
-      const backup: Backup = { app: 'firestone', version: 1, exportedAt: new Date().toISOString(), data };
+      const backup: Backup = { app: 'firestone', version: 2, exportedAt: new Date().toISOString(), data };
       if (withPhotos) {
         backup.photos = {};
         for (const p of data.photos) {
@@ -70,7 +73,9 @@ export default function SettingsPage() {
     try {
       await deleteManyPhotoBlobs(getData().photos.map((p) => p.id));
       for (const [id, p] of Object.entries(b.photos ?? {})) await savePhotoBlobs(id, await dataURLToBlob(p.full), await dataURLToBlob(p.thumb));
-      useStore.getState().replaceAll({ ...emptyData(), ...b.data, initialised: true });
+      // a Version 1 backup is brought into Version 2 the same way saved data is
+      const data = b.version === 2 && b.data.scopeItems ? b.data : upgradeFromV1(b.data as unknown as V1Data);
+      useStore.getState().replaceAll({ ...emptyData(), ...data, initialised: true });
       toast('Backup restored');
     } finally {
       setBusy(false);

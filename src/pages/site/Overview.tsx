@@ -1,43 +1,40 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Camera, Info, Package } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Camera, CheckCircle2, ListChecks, Package } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSiteCtx } from './SiteLayout';
 import { useStore } from '../../store/store';
-import { materialRows, progressHistory } from '../../lib/progress';
+import { materialRows, progressHistory, sortScope } from '../../lib/progress';
 import { crewOn } from '../../lib/notes';
 import { TrendChart } from '../../components/Charts';
-import { Avatar, Bar, Empty } from '../../components/ui';
+import { Avatar, Empty } from '../../components/ui';
+import { KIND_LABEL } from '../../components/TaskBits';
 import { Thumb } from '../../components/Photo';
 import DrawingsCard from '../../components/DrawingsCard';
-import { fmtDay, num, today } from '../../lib/util';
-
-const BUILDING: Record<string, string> = {
-  tower: 'Residential / mixed-use tower', villa: 'Villas', warehouse: 'Warehouse', mall: 'Mall / retail', school: 'School',
-  hospital: 'Hospital / clinic', hotel: 'Hotel', office: 'Office building', 'labour-camp': 'Labour accommodation',
-};
-const CEILING = { 'false-ceiling': 'False ceiling', exposed: 'Exposed soffit', mixed: 'Mixed' } as const;
+import { fmtDate, fmtDay, num, today } from '../../lib/util';
 
 export default function Overview() {
   const s = useSiteCtx();
-  const { site, progress } = s;
+  const { site } = s;
   const t = today();
   const data = useStore(
     useShallow((st) => ({
-      workItems: st.workItems, tasks: st.tasks, adjustments: st.adjustments, allocations: st.allocations, people: st.people,
-      overrides: st.overrides, customMaterials: st.customMaterials, txns: st.txns, photos: st.photos,
+      scopeItems: st.scopeItems, tasks: st.tasks, allocations: st.allocations, people: st.people,
+      customMaterials: st.customMaterials, txns: st.txns, photos: st.photos,
     })),
   );
   const history = useMemo(() => progressHistory(site, data, 14, t), [site, data, t]);
   const crew = crewOn(data, site.id, t);
   const tasks = data.tasks.filter((x) => x.siteId === site.id && x.date === t);
   const blocked = tasks.filter((x) => x.status === 'blocked');
-  const { rows, advisories } = useMemo(() => materialRows(site, data), [site, data]);
+  const rows = useMemo(() => materialRows(site, data), [site, data]);
+  const scope = sortScope(data.scopeItems.filter((i) => i.siteId === site.id));
+  const pending = scope.filter((i) => !i.doneOn);
+  const recent = scope.filter((i) => i.doneOn).slice(0, 4);
+  const tickedTwoWeeks = scope.filter((i) => i.doneOn && i.doneOn >= history[0].date).length;
   const alerts = rows.filter((r) => r.state === 'short' || r.state === 'low');
   const photos = data.photos.filter((p) => p.siteId === site.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 4);
   const count = (st: string) => tasks.filter((x) => x.status === st).length;
-  const c = site.conditions;
-  const gained = history[history.length - 1].value - history[0].value;
 
   return (
     <div className="overview">
@@ -45,9 +42,9 @@ export default function Overview() {
         <section className="card">
           <div className="card__head">
             <div>
-              <h2 className="h2">Overall progress, last 14 days</h2>
+              <h2 className="h2">Progress, last 14 days</h2>
               <p className="muted small">
-                +{(gained * 100).toFixed(1)}% in two weeks · about {(gained * 100 / 12).toFixed(1)}% per working day
+                {tickedTwoWeeks} item{tickedTwoWeeks === 1 ? '' : 's'} ticked off the scope list in two weeks
               </p>
             </div>
           </div>
@@ -58,36 +55,40 @@ export default function Overview() {
 
         <section className="card">
           <div className="card__head">
-            <h2 className="h2">Progress by stage</h2>
-            <Link to="scope" className="btn btn--sm btn--ghost">
-              Edit weights <ArrowRight />
+            <div>
+              <h2 className="h2">Scope list</h2>
+              <p className="muted small">
+                {scope.length - pending.length} of {scope.length} done · {pending.length} pending
+              </p>
+            </div>
+            <Link to="scope" className="btn btn--sm">
+              Open list <ArrowRight />
             </Link>
           </div>
-          <div className="card__body stages">
-            {(['FA', 'FF'] as const)
-              .filter((sys) => site.systems.includes(sys))
-              .map((sys) => (
-                <div key={sys} className="stages__group">
-                  <div className="stages__title">
-                    <span className={`sys sys--${sys}`}>{sys}</span>
-                    <span className="h3">{sys === 'FA' ? 'Fire alarm' : 'Fire fighting'}</span>
-                    <b className="mono">{Math.round((sys === 'FA' ? progress.FA : progress.FF)! * 100)}%</b>
-                  </div>
-                  {progress.items
-                    .filter((p) => p.item.system === sys)
-                    .map((p) => (
-                      <div key={p.item.id} className={`stage ${p.frac >= 1 ? 'is-done' : p.frac > 0 ? 'is-going' : ''}`}>
-                        <span className="stage__label">{p.item.label}</span>
-                        <Bar value={p.frac} kind={p.frac >= 1 ? 'done' : sys} thin label={p.item.label} />
-                        <span className="stage__qty mono">
-                          {num(p.done)} / {num(p.item.qty)} {p.item.unit}
-                        </span>
-                        <span className="stage__pct mono">{Math.round(p.frac * 100)}%</span>
-                      </div>
-                    ))}
-                </div>
+          {scope.length ? (
+            <ul className="pending-list pending-list--plain">
+              {pending.slice(0, 8).map((i) => (
+                <li key={i.id}>
+                  <span className="grow">
+                    {i.system && <span className={`sys sys--${i.system}`}>{i.system}</span>} {i.text}
+                    {i.kind !== 'scope' && <span className={`kind kind--${i.kind}`}>{KIND_LABEL[i.kind]}</span>}
+                  </span>
+                </li>
               ))}
-          </div>
+              {pending.length > 8 && <li className="muted small">and {pending.length - 8} more pending</li>}
+              {recent.map((i) => (
+                <li key={i.id} className="is-done">
+                  <CheckCircle2 aria-hidden />
+                  <span className="grow">{i.text}</span>
+                  <span className="muted small nowrap">{fmtDate(i.doneOn!)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Empty icon={<ListChecks />} title="No scope list yet" action={<Link to="scope" className="btn btn--primary">Write the scope list</Link>}>
+              Write the site's scope as a to-do list. Progress is the share of items ticked off.
+            </Empty>
+          )}
         </section>
       </div>
 
@@ -154,32 +155,23 @@ export default function Overview() {
               ))}
             </ul>
           ) : (
-            <Empty icon={<Package />} title="Nothing running low">Materials being installed all have stock on site.</Empty>
+            <Empty icon={<Package />} title={rows.length ? 'Nothing running low' : 'No materials added yet'}>
+              {rows.length ? 'Materials being used all have stock on site.' : 'Add the materials this site needs in the Materials tab.'}
+            </Empty>
           )}
         </section>
 
-        <section className="card">
-          <div className="card__head">
-            <h2 className="h2">Site conditions</h2>
-            <Link to={`/sites/${site.id}/edit`} className="btn btn--sm btn--ghost">Edit</Link>
-          </div>
-          <div className="card__body stack">
-            <dl className="facts">
-              <div><dt>Building</dt><dd>{BUILDING[c.buildingType]}</dd></div>
-              <div><dt>Levels</dt><dd>{c.floors} floor{c.floors === 1 ? '' : 's'}{c.basements ? ` + ${c.basements} basement` : ''}</dd></div>
-              <div><dt>Ceiling</dt><dd>{CEILING[c.ceiling]} · {c.ceilingHeight} m</dd></div>
-              <div><dt>Void depth</dt><dd>{c.ceiling === 'exposed' ? '—' : `${c.voidDepth} m`}</dd></div>
-              <div><dt>Structure</dt><dd>{c.structure === 'steel' ? 'Steel' : 'Concrete'}</dd></div>
-              <div><dt>Air-conditioned</dt><dd>{c.conditioned ? 'Yes' : 'No'}</dd></div>
-            </dl>
-            {advisories.map((a) => (
-              <p key={a} className="advisory">
-                <Info aria-hidden /> {a}
-              </p>
-            ))}
-            {site.notes && <p className="note">{site.notes}</p>}
-          </div>
-        </section>
+        {site.notes && (
+          <section className="card">
+            <div className="card__head">
+              <h2 className="h2">Site notes</h2>
+              <Link to={`/sites/${site.id}/edit`} className="btn btn--sm btn--ghost">Edit</Link>
+            </div>
+            <div className="card__body">
+              <p className="note">{site.notes}</p>
+            </div>
+          </section>
+        )}
 
         <DrawingsCard siteId={site.id} />
 

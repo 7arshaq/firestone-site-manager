@@ -22,7 +22,7 @@ export function usePhotoAdder(siteId: string, date: string) {
         const p = await processPhoto(file);
         const id = uid();
         await savePhotoBlobs(id, p.full, p.thumb);
-        addPhoto({ id, siteId, date, caption: '', tag: '', workItemId: null, width: p.width, height: p.height, createdAt: new Date().toISOString(), ...extra });
+        addPhoto({ id, siteId, date, caption: '', tag: '', scopeItemId: null, width: p.width, height: p.height, createdAt: new Date().toISOString(), ...extra });
         n++;
       }
       toast(n === 1 ? 'Photo added' : `${n} photos added`);
@@ -55,7 +55,7 @@ export function PhotoButtons({ siteId, date, extra }: { siteId: string; date: st
 
 export default function Photos() {
   const { site } = useSiteCtx();
-  const d = useStore(useShallow((s) => ({ photos: s.photos, workItems: s.workItems })));
+  const d = useStore(useShallow((s) => ({ photos: s.photos, scopeItems: s.scopeItems })));
   const [date, setDate] = useState(today());
   const [open, setOpen] = useState<number | null>(null);
   const [drag, setDrag] = useState(false);
@@ -117,7 +117,7 @@ export default function Photos() {
       {open !== null && photos[open] && (
         <Lightbox
           photo={photos[open]}
-          items={d.workItems.filter((w) => w.siteId === site.id)}
+          items={d.scopeItems.filter((w) => w.siteId === site.id)}
           onPrev={open > 0 ? () => setOpen(open - 1) : undefined}
           onNext={open < photos.length - 1 ? () => setOpen(open + 1) : undefined}
           onClose={() => setOpen(null)}
@@ -127,7 +127,7 @@ export default function Photos() {
   );
 }
 
-function Lightbox({ photo, items, onPrev, onNext, onClose }: { photo: PhotoMeta; items: { id: string; label: string; system: string }[]; onPrev?: () => void; onNext?: () => void; onClose: () => void }) {
+function Lightbox({ photo, items, onPrev, onNext, onClose }: { photo: PhotoMeta; items: { id: string; text: string; system: string | null }[]; onPrev?: () => void; onNext?: () => void; onClose: () => void }) {
   const update = useStore((s) => s.updatePhoto);
   const del = useStore((s) => s.deletePhoto);
   return (
@@ -166,10 +166,10 @@ function Lightbox({ photo, items, onPrev, onNext, onClose }: { photo: PhotoMeta;
             <input className="input" value={photo.tag} onChange={(e) => update(photo.id, { tag: e.target.value })} placeholder="e.g. L18" />
           </label>
           <label className="field">
-            <span>Stage</span>
-            <select className="select" value={photo.workItemId ?? ''} onChange={(e) => update(photo.id, { workItemId: e.target.value || null })}>
+            <span>Scope item</span>
+            <select className="select" value={photo.scopeItemId ?? ''} onChange={(e) => update(photo.id, { scopeItemId: e.target.value || null })}>
               <option value="">Not linked</option>
-              {items.map((w) => <option key={w.id} value={w.id}>{w.system} · {w.label}</option>)}
+              {items.map((w) => <option key={w.id} value={w.id}>{w.system ? `${w.system} · ` : ''}{w.text}</option>)}
             </select>
           </label>
           <label className="field">

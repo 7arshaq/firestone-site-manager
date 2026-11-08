@@ -3,13 +3,14 @@ import { persist, createJSONStorage, type StateStorage } from 'zustand/middlewar
 import { createStore, get, set, del } from 'idb-keyval';
 import type {
   Allocation, Attendance, CustomMaterial, DailyLog, DrawingMeta, Expense, MaterialTxn, Person, PhotoMeta,
-  ProgressAdjustment, Settings, Site, Task, WorkItem,
+  ScopeItem, ScopeKind, Settings, Site, System, Task,
 } from '../types';
-import { syncWorkItems } from '../lib/scope';
-import { uid } from '../lib/util';
+import { today, uid } from '../lib/util';
 import { deleteManyPhotoBlobs, deletePhotoBlobs } from './photos';
 import { deleteDrawingBlob, deleteManyDrawingBlobs } from './drawings';
-import { withoutSample } from '../data/sample-keys';
+import { withoutSample } from './v1/sample-keys';
+import { upgradeFromV1 } from './v1/upgrade';
+import type { V1Data } from './v1/types';
 
 const db = createStore('riser-db', 'state');
 const idbStorage: StateStorage = {
@@ -20,18 +21,16 @@ const idbStorage: StateStorage = {
 
 export interface Data {
   sites: Site[];
-  workItems: WorkItem[];
+  scopeItems: ScopeItem[];
   people: Person[];
   tasks: Task[];
   allocations: Allocation[];
   logs: DailyLog[];
   txns: MaterialTxn[];
   customMaterials: CustomMaterial[];
-  overrides: Record<string, Record<string, number>>;
   expenses: Expense[];
   photos: PhotoMeta[];
   drawings: DrawingMeta[];
-  adjustments: ProgressAdjustment[];
   settings: Settings;
   initialised: boolean;
   sampleLoaded: boolean;
@@ -39,18 +38,16 @@ export interface Data {
 
 export const emptyData = (): Data => ({
   sites: [],
-  workItems: [],
+  scopeItems: [],
   people: [],
   tasks: [],
   allocations: [],
   logs: [],
   txns: [],
   customMaterials: [],
-  overrides: {},
   expenses: [],
   photos: [],
   drawings: [],
-  adjustments: [],
   settings: { companyName: 'Firestone', engineerName: 'Site Engineer', engineerPhone: '', engineerPin: '' },
   initialised: false,
   sampleLoaded: false,
@@ -64,9 +61,10 @@ interface Actions {
   updateSite: (id: string, patch: Partial<Site>) => void;
   deleteSite: (id: string) => Promise<void>;
 
-  updateWorkItem: (id: string, patch: Partial<WorkItem>) => void;
-  addWorkItem: (item: Omit<WorkItem, 'id' | 'key'>) => void;
-  deleteWorkItem: (id: string) => void;
+  addScopeItems: (siteId: string, list: NewScopeItem[]) => void;
+  updateScopeItem: (id: string, patch: Partial<Omit<ScopeItem, 'id' | 'siteId'>>) => void;
+  setScopeDone: (id: string, date: string | null) => void;
+  deleteScopeItem: (id: string) => void;
 
   savePerson: (p: Omit<Person, 'id'> & { id?: string }) => string;
   deletePerson: (id: string) => void;
@@ -83,8 +81,8 @@ interface Actions {
 
   addTxn: (t: Omit<MaterialTxn, 'id'>) => void;
   deleteTxn: (id: string) => void;
-  setOverride: (siteId: string, key: string, qty: number | null) => void;
   addCustomMaterial: (m: Omit<CustomMaterial, 'key'>) => void;
+  updateCustomMaterial: (key: string, patch: Partial<Omit<CustomMaterial, 'key' | 'siteId'>>) => void;
   deleteCustomMaterial: (key: string) => void;
 
   saveExpense: (e: Omit<Expense, 'id'> & { id?: string }) => void;
@@ -95,7 +93,6 @@ interface Actions {
   deletePhoto: (id: string) => Promise<void>;
 
   addDrawings: (list: DrawingMeta[]) => void;
-  addAdjustments: (list: ProgressAdjustment[]) => void;
   deleteDrawing: (id: string) => Promise<void>;
 
   updateSettings: (patch: Partial<Settings>) => void;
@@ -103,7 +100,30 @@ interface Actions {
 
 export type Store = Data & Actions;
 
+export interface NewScopeItem {
+  text: string;
+  system: System | null;
+  kind: ScopeKind;
+  addedOn?: string;
+}
+
 const stamp = () => new Date().toISOString();
+
+/**
+ * Keeps a scope item's "done" in step with the tasks that work on it: finishing a task finishes its item;
+ * re-opening the task re-opens the item when no other finished task covers it.
+ */
+function linkDone(items: ScopeItem[], tasks: Task[], prev?: Task, next?: Task): ScopeItem[] {
+  let out = items;
+  if (prev?.scopeItemId && prev.status === 'done' && (!next || next.status !== 'done' || next.scopeItemId !== prev.scopeItemId)) {
+    const still = tasks.some((t) => t.id !== prev.id && t.scopeItemId === prev.scopeItemId && t.status === 'done');
+    if (!still) out = out.map((i) => (i.id === prev.scopeItemId && i.doneOn === prev.date ? { ...i, doneOn: null } : i));
+  }
+  if (next?.scopeItemId && next.status === 'done' && (!prev || prev.status !== 'done' || prev.scopeItemId !== next.scopeItemId)) {
+    out = out.map((i) => (i.id === next.scopeItemId && !i.doneOn ? { ...i, doneOn: next.date } : i));
+  }
+  return out;
+}
 
 export const useStore = create<Store>()(
   persist(
@@ -121,29 +141,18 @@ export const useStore = create<Store>()(
 
       addSite: (input) => {
         const site: Site = { ...input, id: uid(), createdAt: stamp() };
-        setState((s) => ({
-          sites: [...s.sites, site],
-          workItems: [...s.workItems, ...syncWorkItems(site, [])],
-        }));
+        setState((s) => ({ sites: [...s.sites, site] }));
         return site.id;
       },
-      updateSite: (id, patch) =>
-        setState((s) => {
-          const sites = s.sites.map((x) => (x.id === id ? { ...x, ...patch } : x));
-          const site = sites.find((x) => x.id === id)!;
-          const synced = syncWorkItems(site, s.workItems);
-          return { sites, workItems: [...s.workItems.filter((w) => w.siteId !== id), ...synced] };
-        }),
+      updateSite: (id, patch) => setState((s) => ({ sites: s.sites.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
       deleteSite: async (id) => {
         const photoIds = getState().photos.filter((p) => p.siteId === id).map((p) => p.id);
         await deleteManyPhotoBlobs(photoIds);
         await deleteManyDrawingBlobs(getState().drawings.filter((d) => d.siteId === id).map((d) => d.id));
         setState((s) => {
-          const overrides = { ...s.overrides };
-          delete overrides[id];
           return {
             sites: s.sites.filter((x) => x.id !== id),
-            workItems: s.workItems.filter((x) => x.siteId !== id),
+            scopeItems: s.scopeItems.filter((x) => x.siteId !== id),
             tasks: s.tasks.filter((x) => x.siteId !== id),
             allocations: s.allocations.map((a) => (a.siteId === id ? { ...a, siteId: null } : a)),
             logs: s.logs.filter((x) => x.siteId !== id),
@@ -152,21 +161,25 @@ export const useStore = create<Store>()(
             expenses: s.expenses.filter((x) => x.siteId !== id),
             photos: s.photos.filter((x) => x.siteId !== id),
             drawings: s.drawings.filter((x) => x.siteId !== id),
-            adjustments: s.adjustments.filter((x) => x.siteId !== id),
-            overrides,
           };
         });
       },
 
-      updateWorkItem: (id, patch) =>
-        setState((s) => ({ workItems: s.workItems.map((w) => (w.id === id ? { ...w, ...patch } : w)) })),
-      addWorkItem: (item) =>
-        setState((s) => ({ workItems: [...s.workItems, { ...item, id: uid(), key: `custom.${uid()}` }] })),
-      deleteWorkItem: (id) =>
+      addScopeItems: (siteId, list) =>
+        setState((s) => {
+          let order = Math.max(-1, ...s.scopeItems.filter((i) => i.siteId === siteId).map((i) => i.order));
+          const fresh = list
+            .filter((x) => x.text.trim())
+            .map((x) => ({ id: uid(), siteId, text: x.text.trim(), system: x.system, kind: x.kind, addedOn: x.addedOn ?? today(), doneOn: null, order: ++order }));
+          return { scopeItems: [...s.scopeItems, ...fresh] };
+        }),
+      updateScopeItem: (id, patch) => setState((s) => ({ scopeItems: s.scopeItems.map((i) => (i.id === id ? { ...i, ...patch } : i)) })),
+      setScopeDone: (id, date) => setState((s) => ({ scopeItems: s.scopeItems.map((i) => (i.id === id ? { ...i, doneOn: date } : i)) })),
+      deleteScopeItem: (id) =>
         setState((s) => ({
-          adjustments: s.adjustments.filter((a) => a.workItemId !== id),
-          workItems: s.workItems.filter((w) => w.id !== id),
-          tasks: s.tasks.map((t) => (t.workItemId === id ? { ...t, workItemId: null } : t)),
+          scopeItems: s.scopeItems.filter((i) => i.id !== id),
+          tasks: s.tasks.map((t) => (t.scopeItemId === id ? { ...t, scopeItemId: null } : t)),
+          photos: s.photos.map((p) => (p.scopeItemId === id ? { ...p, scopeItemId: null } : p)),
         })),
 
       savePerson: (p) => {
@@ -187,25 +200,36 @@ export const useStore = create<Store>()(
 
       addTask: (t) => {
         const id = uid();
-        setState((s) => ({ tasks: [...s.tasks, { ...t, id, updatedAt: stamp() }] }));
+        setState((s) => {
+          const task = { ...t, id, updatedAt: stamp() };
+          const tasks = [...s.tasks, task];
+          return { tasks, scopeItems: linkDone(s.scopeItems, tasks, undefined, task) };
+        });
         return id;
       },
       updateTask: (id, patch) =>
-        setState((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: stamp() } : t)) })),
-      deleteTask: (id) => setState((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
+        setState((s) => {
+          const prev = s.tasks.find((t) => t.id === id);
+          const tasks = s.tasks.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: stamp() } : t));
+          return { tasks, scopeItems: linkDone(s.scopeItems, tasks, prev, tasks.find((t) => t.id === id)) };
+        }),
+      deleteTask: (id) =>
+        setState((s) => {
+          const prev = s.tasks.find((t) => t.id === id);
+          const tasks = s.tasks.filter((t) => t.id !== id);
+          return { tasks, scopeItems: linkDone(s.scopeItems, tasks, prev, undefined) };
+        }),
       carryOver: (siteId, from, to) => {
         const open = getState().tasks.filter((t) => t.siteId === siteId && t.date === from && t.status !== 'done');
         const already = new Set(
-          getState().tasks.filter((t) => t.siteId === siteId && t.date === to).map((t) => `${t.workItemId}|${t.title}`),
+          getState().tasks.filter((t) => t.siteId === siteId && t.date === to).map((t) => `${t.scopeItemId}|${t.title}`),
         );
         const fresh = open
-          .filter((t) => !already.has(`${t.workItemId}|${t.title}`))
+          .filter((t) => !already.has(`${t.scopeItemId}|${t.title}`))
           .map((t) => ({
             ...t,
             id: uid(),
             date: to,
-            doneQty: 0,
-            plannedQty: Math.max(0, t.plannedQty - t.doneQty),
             status: 'planned' as const,
             blockReason: t.status === 'blocked' ? t.blockReason : '',
             updatedAt: stamp(),
@@ -249,15 +273,10 @@ export const useStore = create<Store>()(
 
       addTxn: (t) => setState((s) => ({ txns: [...s.txns, { ...t, id: uid() }] })),
       deleteTxn: (id) => setState((s) => ({ txns: s.txns.filter((t) => t.id !== id) })),
-      setOverride: (siteId, key, qty) =>
-        setState((s) => {
-          const site = { ...(s.overrides[siteId] ?? {}) };
-          if (qty === null) delete site[key];
-          else site[key] = qty;
-          return { overrides: { ...s.overrides, [siteId]: site } };
-        }),
       addCustomMaterial: (m) =>
         setState((s) => ({ customMaterials: [...s.customMaterials, { ...m, key: `custom.${uid()}` }] })),
+      updateCustomMaterial: (key, patch) =>
+        setState((s) => ({ customMaterials: s.customMaterials.map((m) => (m.key === key ? { ...m, ...patch } : m)) })),
       deleteCustomMaterial: (key) =>
         setState((s) => ({
           customMaterials: s.customMaterials.filter((m) => m.key !== key),
@@ -284,7 +303,6 @@ export const useStore = create<Store>()(
       },
 
       addDrawings: (list) => setState((s) => ({ drawings: [...s.drawings, ...list] })),
-      addAdjustments: (list) => setState((s) => ({ adjustments: [...s.adjustments, ...list] })),
       deleteDrawing: async (id) => {
         await deleteDrawingBlob(id);
         setState((s) => ({ drawings: s.drawings.filter((d) => d.id !== id) }));
@@ -294,10 +312,16 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'riser-data',
-      version: 4,
-      migrate: (persisted, version) => {
-        let s = persisted as Data;
-        if (!s) return s as unknown as Store;
+      version: 5,
+      migrate: async (persisted, version) => {
+        if (!persisted || version >= 5) return persisted as Store;
+        // keep an untouched copy of the older data on this device before converting it
+        try {
+          await set('riser-data-before-v2', JSON.stringify({ state: persisted, version, savedAt: new Date().toISOString() }), db);
+        } catch {
+          /* convert anyway — the copy is only a safety net */
+        }
+        let s = persisted as V1Data;
         // v2: company branding — replace the old placeholder company name
         if (version < 2 && s.settings?.companyName === 'Fire Safety Contracting LLC') s.settings.companyName = 'Firestone';
         // v3: drawings, and the app no longer ships with sample sites — take them out, keep everything the user added
@@ -311,9 +335,15 @@ export const useStore = create<Store>()(
         }
         // v4: dated progress adjustments (highlighted-drawing updates)
         if (version < 4) s = { ...s, drawings: s.drawings ?? [], adjustments: s.adjustments ?? [] };
-        return s as unknown as Store;
+        // v5 = Version 2 of the app: the scope is a to-do list instead of device quantities
+        return upgradeFromV1(s) as unknown as Store;
       },
       storage: createJSONStorage(() => idbStorage),
+      // First start on this device: only once loading has finished and nothing was saved before.
+      // (Deciding this anywhere else can race the load and save an empty app over real data.)
+      onRehydrateStorage: () => (state, error) => {
+        if (!error && state && !state.initialised) state.replaceAll({ ...emptyData(), initialised: true });
+      },
       partialize: (s) => {
         const out: Partial<Store> = {};
         for (const k of Object.keys(emptyData()) as (keyof Data)[]) (out as Record<string, unknown>)[k] = s[k];

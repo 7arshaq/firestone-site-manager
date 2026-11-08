@@ -24,13 +24,11 @@ export function useSummaries(date = today()): SiteSummary[] {
   const d = useStore(
     useShallow((s) => ({
       sites: s.sites,
-      workItems: s.workItems,
+      scopeItems: s.scopeItems,
       tasks: s.tasks,
-      adjustments: s.adjustments,
       allocations: s.allocations,
       people: s.people,
       txns: s.txns,
-      overrides: s.overrides,
       customMaterials: s.customMaterials,
     })),
   );

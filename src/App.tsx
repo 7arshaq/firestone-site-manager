@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { emptyData, useSession, useStore } from './store/store';
+import { useSession, useStore } from './store/store';
 import Shell from './components/Shell';
 import { Toasts } from './components/ui';
 import { Lockup } from './components/Brand';
@@ -8,7 +8,7 @@ import { useApplyTheme } from './store/ui';
 import MapHome from './pages/MapHome';
 import SiteLayout from './pages/site/SiteLayout';
 import Overview from './pages/site/Overview';
-import Scope from './pages/site/Scope';
+import ScopeList from './pages/site/ScopeList';
 import Daily from './pages/site/Daily';
 import SiteTeam from './pages/site/SiteTeam';
 import SiteMaterials from './pages/site/SiteMaterials';
@@ -35,10 +35,6 @@ export default function App() {
   const hydrated = useHydrated();
   const initialised = useStore((s) => s.initialised);
   const crewMode = useSession((s) => s.crewMode);
-
-  useEffect(() => {
-    if (hydrated && !initialised) useStore.getState().replaceAll({ ...emptyData(), initialised: true });
-  }, [hydrated, initialised]);
 
   if (!hydrated || !initialised) {
     return (
@@ -67,7 +63,7 @@ export default function App() {
           <Route path="sites/:id/edit" element={<Lazy><SiteForm /></Lazy>} />
           <Route path="sites/:id" element={<SiteLayout />}>
             <Route index element={<Overview />} />
-            <Route path="scope" element={<Scope />} />
+            <Route path="scope" element={<ScopeList />} />
             <Route path="daily" element={<Daily />} />
             <Route path="team" element={<SiteTeam />} />
             <Route path="materials" element={<SiteMaterials />} />

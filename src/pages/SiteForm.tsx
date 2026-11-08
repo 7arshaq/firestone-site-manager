@@ -1,45 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Link2, MapPin, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Link2, ListChecks, MapPin, Trash2, X } from 'lucide-react';
 import UaeMap, { gridRef } from '../components/UaeMap';
 import DrawingAssistant from '../components/DrawingAssistant';
 import SatelliteView from '../components/SatelliteView';
 import { saveDrawingBlob } from '../store/drawings';
 import { reverseGeocode, type Place } from '../lib/geocode';
 import type { PickedDrawing } from '../lib/drawing-files';
+import ScopeAdd from '../components/ScopeAdd';
+import { KIND_LABEL } from '../components/TaskBits';
 import { Confirm, NumField, Seg, toast } from '../components/ui';
-import { useStore } from '../store/store';
-import { estimateMaterials } from '../lib/estimate';
-import { TEMPLATES } from '../lib/scope';
-import type { BuildingType, DrawingMeta, Emirate, FAScope, FFScope, Site, SiteStatus, System } from '../types';
+import { useStore, type NewScopeItem } from '../store/store';
+import type { DrawingMeta, Emirate, Site, SiteStatus, System } from '../types';
 import { addDays, parseLatLng, today, uid } from '../lib/util';
 
 const EMIRATES: Emirate[] = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
 const PREFIX: Record<Emirate, string> = {
   'Abu Dhabi': 'AUH', Dubai: 'DXB', Sharjah: 'SHJ', Ajman: 'AJM', 'Umm Al Quwain': 'UAQ', 'Ras Al Khaimah': 'RAK', Fujairah: 'FUJ',
 };
-const BUILDINGS: [BuildingType, string][] = [
-  ['tower', 'Tower / high-rise'], ['villa', 'Villas'], ['warehouse', 'Warehouse / factory'], ['mall', 'Mall / retail'],
-  ['school', 'School'], ['hospital', 'Hospital / clinic'], ['hotel', 'Hotel'], ['office', 'Office'], ['labour-camp', 'Labour accommodation'],
-];
-const FA_FIELDS: [keyof FAScope, string][] = [
-  ['panels', 'Fire alarm panels'], ['loops', 'Loops (total)'], ['smoke', 'Smoke detectors'], ['heat', 'Heat detectors'],
-  ['beam', 'Beam detectors'], ['mcp', 'Manual call points'], ['sounders', 'Sounders / strobes'], ['modules', 'Interface modules'],
-];
-const FF_FIELDS: [keyof FFScope, string][] = [
-  ['sprinklers', 'Sprinkler heads'], ['pipeMeters', 'Pipework (m, all sizes)'], ['hoseReels', 'Hose reels'], ['landingValves', 'Landing valves'],
-  ['hydrants', 'External hydrants'], ['alarmValves', 'Alarm / zone control valves'], ['pumpSets', 'Fire pump sets'], ['extinguishers', 'Extinguishers'],
-];
-
 type Draft = Omit<Site, 'id' | 'createdAt'>;
 
 function blank(code: string): Draft {
   return {
     code, name: '', client: '', contractor: '', consultant: '', emirate: 'Abu Dhabi', area: '', lat: 24.4539, lng: 54.3773,
-    status: 'active', systems: ['FA', 'FF'], faShare: 40, startDate: today(), targetDate: addDays(today(), 180),
-    conditions: { buildingType: 'tower', structure: 'concrete', ceiling: 'false-ceiling', ceilingHeight: 3.2, voidDepth: 0.6, floors: 1, basements: 0, conditioned: true },
-    fa: { panels: 1, loops: 2, smoke: 0, heat: 0, beam: 0, mcp: 0, sounders: 0, modules: 0 },
-    ff: { sprinklers: 0, pipeMeters: 0, hoseReels: 0, landingValves: 0, hydrants: 0, alarmValves: 0, pumpSets: 0, extinguishers: 0 },
+    status: 'active', systems: ['FA', 'FF'], startDate: today(), targetDate: addDays(today(), 180),
     notes: '',
   };
 }
@@ -53,6 +37,8 @@ export default function SiteForm() {
   const updateSite = useStore((s) => s.updateSite);
   const deleteSite = useStore((s) => s.deleteSite);
   const addDrawings = useStore((s) => s.addDrawings);
+  const addScopeItems = useStore((s) => s.addScopeItems);
+  const savedScope = useStore((s) => s.scopeItems.filter((i) => i.siteId === id).length);
   const nextCode = (e: Emirate) => {
     const nums = sites.filter((s) => s.code.startsWith(PREFIX[e])).map((s) => parseInt(s.code.split('-')[1] ?? '0', 10) || 0);
     return `${PREFIX[e]}-${String((nums.length ? Math.max(...nums) : 100) + 1).padStart(3, '0')}`;
@@ -70,6 +56,12 @@ export default function SiteForm() {
   const [pinSet, setPinSet] = useState(!!existing);
   const [view, setView] = useState<'map' | 'satellite'>('map');
   const [place, setPlace] = useState<Place | null>(null);
+  // a new site's scope list, kept here until the site is saved
+  const [scope, setScope] = useState<NewScopeItem[]>([]);
+  const addScope = (items: NewScopeItem[]) => {
+    if (existing) addScopeItems(existing.id, items);
+    else setScope((x) => [...x, ...items]);
+  };
   const placePin = (p: { lat: number; lng: number }) => {
     setF((x) => ({ ...x, lat: p.lat, lng: p.lng }));
     setPinSet(true);
@@ -86,15 +78,7 @@ export default function SiteForm() {
   }, [pinSet, f.lat, f.lng]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((x) => ({ ...x, [k]: v }));
-  const setC = <K extends keyof Draft['conditions']>(k: K, v: Draft['conditions'][K]) => setF((x) => ({ ...x, conditions: { ...x.conditions, [k]: v } }));
   const toggleSys = (s: System) => set('systems', f.systems.includes(s) ? f.systems.filter((x) => x !== s) : ([...f.systems, s].sort() as System[]));
-
-  const preview = useMemo(() => {
-    const fake = { ...f, id: 'x', createdAt: '' } as Site;
-    const est = estimateMaterials(fake);
-    const stages = TEMPLATES.filter((t) => f.systems.includes(t.system) && t.qty(fake) > 0).length;
-    return { materials: est.lines.length, advisories: est.advisories, stages };
-  }, [f]);
 
   const keepDrawings = async (siteId: string) => {
     const list = picked.filter((p) => !p.error && (p.kind === 'pdf' || p.kind === 'image'));
@@ -117,6 +101,10 @@ export default function SiteForm() {
       nav(`/sites/${existing.id}`);
     } else {
       const newId = addSite(f);
+      if (scope.length) {
+        const addedOn = f.startDate && f.startDate < today() ? f.startDate : today();
+        addScopeItems(newId, scope.map((x) => ({ ...x, addedOn })));
+      }
       await keepDrawings(newId);
       toast('Site added');
       nav(`/sites/${newId}`);
@@ -164,6 +152,7 @@ export default function SiteForm() {
             pin={pinSet ? { lat: f.lat, lng: f.lng } : null}
             onPin={placePin}
             onFilled={(keys) => keys.includes('code') && setCodeTouched(true)}
+            onScope={addScope}
           />
 
           <section className="card">
@@ -227,86 +216,43 @@ export default function SiteForm() {
           <section className="card">
             <div className="card__head">
               <div>
-                <h2 className="h2">Site conditions</h2>
-                <p className="muted small">Used to pick the right materials: conduit type, sprinkler type and rating, hangers, access equipment.</p>
+                <h2 className="h2">
+                  <ListChecks className="assist__icon" aria-hidden /> Scope of work
+                </h2>
+                <p className="muted small">
+                  Write the scope as a to-do list — one sentence per item. You can add more any time, including variations and work found on site.
+                </p>
               </div>
             </div>
-            <div className="card__body form-grid">
-              <label className="field">
-                <span>Building type</span>
-                <select className="select" value={f.conditions.buildingType} onChange={(e) => setC('buildingType', e.target.value as BuildingType)}>
-                  {BUILDINGS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                <span>Ceiling</span>
-                <select className="select" value={f.conditions.ceiling} onChange={(e) => setC('ceiling', e.target.value as Draft['conditions']['ceiling'])}>
-                  <option value="false-ceiling">False ceiling</option>
-                  <option value="exposed">Exposed soffit / roof</option>
-                  <option value="mixed">Mixed</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Structure</span>
-                <select className="select" value={f.conditions.structure} onChange={(e) => setC('structure', e.target.value as Draft['conditions']['structure'])}>
-                  <option value="concrete">Concrete slab</option>
-                  <option value="steel">Steel structure</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>Ceiling / roof height (m)</span>
-                <NumField step={0.1} value={f.conditions.ceilingHeight} onChange={(n) => setC('ceilingHeight', n)} />
-              </label>
-              <label className="field">
-                <span>False-ceiling void (m)</span>
-                <NumField step={0.1} value={f.conditions.voidDepth} onChange={(n) => setC('voidDepth', n)} />
-              </label>
-              <label className="field">
-                <span>Floors</span>
-                <NumField value={f.conditions.floors} onChange={(n) => setC('floors', Math.max(1, Math.round(n)))} />
-              </label>
-              <label className="field">
-                <span>Basements</span>
-                <NumField value={f.conditions.basements} onChange={(n) => setC('basements', Math.round(n))} />
-              </label>
-              <label className="check" style={{ alignSelf: 'end', minHeight: 40 }}>
-                <input type="checkbox" checked={f.conditions.conditioned} onChange={(e) => setC('conditioned', e.target.checked)} />
-                Air-conditioned
-              </label>
-            </div>
+            {existing ? (
+              <div className="card__body row row--between row--wrap">
+                <span>
+                  <b>{savedScope}</b> item{savedScope === 1 ? '' : 's'} on this site's scope list.
+                </span>
+                <Link to={`/sites/${existing.id}/scope`} className="btn btn--sm">
+                  Open the scope list <ArrowRight />
+                </Link>
+              </div>
+            ) : (
+              <div className="card__body stack">
+                <ScopeAdd systems={f.systems.length ? f.systems : ['FA', 'FF']} onAdd={addScope} />
+                {scope.length > 0 && (
+                  <ul className="draft-scope">
+                    {scope.map((x, i) => (
+                      <li key={i}>
+                        {x.system && <span className={`sys sys--${x.system}`}>{x.system}</span>}
+                        <span className="grow">{x.text}</span>
+                        {x.kind !== 'scope' && <span className={`kind kind--${x.kind}`}>{KIND_LABEL[x.kind]}</span>}
+                        <button className="icon-btn icon-btn--sm" onClick={() => setScope(scope.filter((_, j) => j !== i))} aria-label={`Remove "${x.text}"`}>
+                          <X />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </section>
-
-          {f.systems.includes('FA') && (
-            <section className="card">
-              <div className="card__head">
-                <h2 className="h2"><span className="sys sys--FA">FA</span> Fire alarm scope</h2>
-              </div>
-              <div className="card__body form-grid">
-                {FA_FIELDS.map(([k, label]) => (
-                  <label className="field" key={k}>
-                    <span>{label}</span>
-                    <NumField value={f.fa[k]} onChange={(n) => set('fa', { ...f.fa, [k]: Math.round(n) })} />
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {f.systems.includes('FF') && (
-            <section className="card">
-              <div className="card__head">
-                <h2 className="h2"><span className="sys sys--FF">FF</span> Fire fighting scope</h2>
-              </div>
-              <div className="card__body form-grid">
-                {FF_FIELDS.map(([k, label]) => (
-                  <label className="field" key={k}>
-                    <span>{label}</span>
-                    <NumField value={f.ff[k]} onChange={(n) => set('ff', { ...f.ff, [k]: Math.round(n) })} />
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
 
           <section className="card">
             <div className="card__head"><h2 className="h2">Notes</h2></div>
@@ -404,19 +350,6 @@ export default function SiteForm() {
                   <MapPin /> I'm on site — use my location
                 </button>
               )}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card__head"><h2 className="h2">What this scope gives you</h2></div>
-            <div className="card__body stack">
-              <div className="today-counts" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                <div><b className="mono">{preview.stages}</b><span>progress stages</span></div>
-                <div><b className="mono">{preview.materials}</b><span>materials estimated</span></div>
-              </div>
-              {preview.advisories.map((a) => (
-                <p key={a} className="advisory">{a}</p>
-              ))}
             </div>
           </section>
         </aside>

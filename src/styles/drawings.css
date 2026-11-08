@@ -492,82 +492,8 @@
    Update from highlighted drawings
    ========================================================= */
 
-.colours {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-}
-
-.colours li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
-  font-size: var(--fs-13);
-}
-
-.colours__pick {
-  width: auto;
-  max-width: 48%;
-  flex: none;
-}
-
-.swatch {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
-}
-
-.swatch--sm {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-}
-
-.markup-sheets td {
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-.cov {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  justify-content: flex-end;
-}
-
-.cov__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--fs-12);
-}
-
-.markup-check {
-  width: 17px;
-  height: 17px;
-  accent-color: var(--brand);
-}
-
 .dfiles li .pill {
   margin-top: 3px;
-}
-
-@media (max-width: 560px) {
-  .colours li {
-    flex-wrap: wrap;
-  }
-  .colours__pick {
-    max-width: none;
-    width: 100%;
-  }
 }
 
 .dfiles li small {

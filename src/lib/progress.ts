@@ -1,67 +1,42 @@
-import type { MaterialLine, MaterialTxn, ProgressAdjustment, Site, System, Task, WorkItem } from '../types';
+import type { MaterialTxn, ScopeItem, Site, System } from '../types';
 import type { Data } from '../store/store';
-import { estimateMaterials } from './estimate';
-import { STAGE_ORDER } from './scope';
-import { addDays, clamp01, today } from './util';
+import { addDays, today } from './util';
 
-export interface ItemProgress {
-  item: WorkItem;
-  done: number;
-  frac: number;
-}
+/* ---------------- Scope list progress ---------------- */
 
 export interface SiteProgress {
+  /** share of fire alarm items done, or null when the site has no FA items */
   FA: number | null;
   FF: number | null;
+  /** share of all items done (FA, FF and general together) */
   overall: number;
-  items: ItemProgress[];
+  total: number;
+  done: number;
 }
 
-/** Task quantities plus dated adjustments per work item, optionally up to and including a date */
-function doneByItem(tasks: Task[], adjustments: ProgressAdjustment[], siteId: string, upTo?: string) {
-  const map = new Map<string, number>();
-  for (const t of tasks) {
-    if (t.siteId !== siteId || !t.workItemId || t.doneQty <= 0) continue;
-    if (upTo && t.date > upTo) continue;
-    map.set(t.workItemId, (map.get(t.workItemId) ?? 0) + t.doneQty);
-  }
-  for (const a of adjustments) {
-    if (a.siteId !== siteId || (upTo && a.date > upTo)) continue;
-    map.set(a.workItemId, (map.get(a.workItemId) ?? 0) + a.qty);
-  }
-  return map;
+/** Scope items of one site as they stood on a date: items added later are left out, items finished later count as pending */
+export function itemsOn(items: ScopeItem[], siteId: string, upTo?: string) {
+  return items.filter((i) => i.siteId === siteId && (!upTo || i.addedOn <= upTo));
 }
 
-export function siteProgress(site: Site, workItems: WorkItem[], tasks: Task[], upTo?: string, adjustments: ProgressAdjustment[] = []): SiteProgress {
-  const items = workItems
-    .filter((w) => w.siteId === site.id)
-    .sort((a, b) => (STAGE_ORDER.get(a.key) ?? 99) - (STAGE_ORDER.get(b.key) ?? 99));
-  const done = doneByItem(tasks, adjustments, site.id, upTo);
-  const out: ItemProgress[] = items.map((item) => {
-    const d = Math.max(0, Math.min(item.qty, item.baseDone + (done.get(item.id) ?? 0)));
-    return { item, done: d, frac: item.qty > 0 ? clamp01(d / item.qty) : 0 };
-  });
+export const isDone = (i: ScopeItem, upTo?: string) => i.doneOn !== null && (!upTo || i.doneOn <= upTo);
+
+/** Progress = items done ÷ items on the list. No weights or quantities. */
+export function siteProgress(site: Site, scopeItems: ScopeItem[], upTo?: string): SiteProgress {
+  const list = itemsOn(scopeItems, site.id, upTo);
+  const done = list.filter((i) => isDone(i, upTo)).length;
   const sys = (s: System) => {
-    const list = out.filter((p) => p.item.system === s && p.item.weight > 0);
-    const w = list.reduce((a, p) => a + p.item.weight, 0);
-    if (!site.systems.includes(s) || w === 0) return null;
-    return list.reduce((a, p) => a + p.item.weight * p.frac, 0) / w;
+    const mine = list.filter((i) => i.system === s);
+    return site.systems.includes(s) && mine.length ? mine.filter((i) => isDone(i, upTo)).length / mine.length : null;
   };
-  const FA = sys('FA');
-  const FF = sys('FF');
-  let overall = 0;
-  if (FA !== null && FF !== null) {
-    const share = clamp01(site.faShare / 100);
-    overall = FA * share + FF * (1 - share);
-  } else overall = FA ?? FF ?? 0;
-  return { FA, FF, overall, items: out };
+  return { FA: sys('FA'), FF: sys('FF'), overall: list.length ? done / list.length : 0, total: list.length, done };
 }
 
-type ProgressData = Pick<Data, 'workItems' | 'tasks'> & { adjustments?: ProgressAdjustment[] };
+type ProgressData = Pick<Data, 'scopeItems'>;
 
 export function progressDelta(site: Site, data: ProgressData, date = today()) {
-  const now = siteProgress(site, data.workItems, data.tasks, date, data.adjustments);
-  const before = siteProgress(site, data.workItems, data.tasks, addDays(date, -1), data.adjustments);
+  const now = siteProgress(site, data.scopeItems, date);
+  const before = siteProgress(site, data.scopeItems, addDays(date, -1));
   return {
     now,
     before,
@@ -76,17 +51,31 @@ export function progressHistory(site: Site, data: ProgressData, days = 14, end =
   const out: { date: string; value: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = addDays(end, -i);
-    out.push({ date: d, value: siteProgress(site, data.workItems, data.tasks, d, data.adjustments).overall });
+    out.push({ date: d, value: siteProgress(site, data.scopeItems, d).overall });
   }
   return out;
+}
+
+/** Pending items first (in list order), then finished ones (latest first) */
+export function sortScope(items: ScopeItem[]) {
+  return [...items].sort((a, b) => {
+    if (!a.doneOn !== !b.doneOn) return a.doneOn ? 1 : -1;
+    if (a.doneOn && b.doneOn && a.doneOn !== b.doneOn) return b.doneOn.localeCompare(a.doneOn);
+    return a.order - b.order;
+  });
 }
 
 /* ---------------- Materials on site ---------------- */
 
 export type StockState = 'ok' | 'low' | 'short' | 'none';
 
-export interface MaterialRow extends MaterialLine {
-  estimate: number;
+export interface MaterialRow {
+  key: string;
+  system: System | null;
+  name: string;
+  unit: string;
+  /** how much the site needs, as typed by the engineer */
+  needed: number;
   delivered: number;
   used: number;
   onSite: number;
@@ -98,49 +87,43 @@ export interface MaterialRow extends MaterialLine {
   state: StockState;
 }
 
-export function materialRows(site: Site, data: Pick<Data, 'overrides' | 'customMaterials' | 'txns'>): { rows: MaterialRow[]; advisories: string[] } {
-  const est = estimateMaterials(site);
-  const ov = data.overrides[site.id] ?? {};
-  const lines: MaterialLine[] = est.lines.map((l) =>
-    l.key in ov ? { ...l, qty: ov[l.key], overridden: true } : l,
-  );
-  for (const c of data.customMaterials.filter((m) => m.siteId === site.id)) {
-    lines.push({
-      key: c.key, system: c.system, group: `${c.system} · Added by you`, name: c.name, unit: c.unit,
-      qty: c.qty, basis: 'Added manually', custom: true,
-    });
-  }
+export const materialGroup = (s: System | null) => (s === 'FA' ? 'Fire alarm' : s === 'FF' ? 'Fire fighting' : 'General');
+
+export function materialRows(site: Site, data: Pick<Data, 'customMaterials' | 'txns'>): MaterialRow[] {
+  const order = { FA: 0, FF: 1, general: 2 };
   const txns = data.txns.filter((t) => t.siteId === site.id);
-  const rows = lines.map((l) => {
-    const est = l.qty;
-    const mine = txns.filter((t) => t.key === l.key);
-    const sum = (type: MaterialTxn['type']) => mine.filter((t) => t.type === type).reduce((a, t) => a + t.qty, 0);
-    const inQ = sum('in');
-    const outQ = sum('out');
-    const ret = sum('return');
-    const delivered = inQ - ret;
-    const onSite = inQ - outQ - ret;
-    const toDeliver = Math.max(0, est - delivered);
-    // a request stays open until deliveries made after it cover it; deliveries before it don't count
-    let requested = 0;
-    for (const t of [...mine].sort((a, b) => a.date.localeCompare(b.date))) {
-      if (t.type === 'request') requested += t.qty;
-      else if (t.type === 'in') requested = Math.max(0, requested - t.qty);
-    }
-    const toRequest = Math.max(0, toDeliver - requested);
-    const stillNeeded = Math.max(0, est - outQ);
-    // Only materials already being installed can run short; untouched ones are simply "not delivered yet".
-    const inUse = outQ > 0;
-    let state: StockState = 'ok';
-    if (delivered <= 0 && est > 0) state = 'none';
-    else if (inUse && stillNeeded > 0 && onSite <= 0) state = 'short';
-    else if (inUse && stillNeeded > 0 && onSite < Math.max(1, est * 0.06) && onSite < stillNeeded) state = 'low';
-    return { ...l, estimate: est, delivered, used: outQ, onSite, toDeliver, requested, toRequest, state };
-  });
-  return { rows, advisories: est.advisories };
+  return data.customMaterials
+    .filter((m) => m.siteId === site.id)
+    .sort((a, b) => order[a.system ?? 'general'] - order[b.system ?? 'general'])
+    .map((m) => {
+      const needed = m.qty;
+      const mine = txns.filter((t) => t.key === m.key);
+      const sum = (type: MaterialTxn['type']) => mine.filter((t) => t.type === type).reduce((a, t) => a + t.qty, 0);
+      const inQ = sum('in');
+      const outQ = sum('out');
+      const ret = sum('return');
+      const delivered = inQ - ret;
+      const onSite = inQ - outQ - ret;
+      const toDeliver = Math.max(0, needed - delivered);
+      // a request stays open until deliveries made after it cover it; deliveries before it don't count
+      let requested = 0;
+      for (const t of [...mine].sort((a, b) => a.date.localeCompare(b.date))) {
+        if (t.type === 'request') requested += t.qty;
+        else if (t.type === 'in') requested = Math.max(0, requested - t.qty);
+      }
+      const toRequest = Math.max(0, toDeliver - requested);
+      const stillNeeded = Math.max(0, needed - outQ);
+      // only materials already being used can run short; untouched ones are simply "not delivered yet"
+      const inUse = outQ > 0;
+      let state: StockState = 'ok';
+      if (delivered <= 0 && needed > 0) state = 'none';
+      else if (inUse && stillNeeded > 0 && onSite <= 0) state = 'short';
+      else if (inUse && stillNeeded > 0 && onSite < Math.max(1, needed * 0.06) && onSite < stillNeeded) state = 'low';
+      return { key: m.key, system: m.system, name: m.name, unit: m.unit, needed, delivered, used: outQ, onSite, toDeliver, requested, toRequest, state };
+    });
 }
 
 /** Materials that need attention: delivered but running out, or started work with nothing on site */
-export function materialAlerts(site: Site, data: Pick<Data, 'overrides' | 'customMaterials' | 'txns'>) {
-  return materialRows(site, data).rows.filter((r) => r.state === 'short' || r.state === 'low');
+export function materialAlerts(site: Site, data: Pick<Data, 'customMaterials' | 'txns'>) {
+  return materialRows(site, data).filter((r) => r.state === 'short' || r.state === 'low');
 }

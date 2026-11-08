@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Check, CheckCircle2, FileText, Info, KeyRound, Loader2, MapPin, RefreshCw, Sparkles, Square, Upload, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, FileText, Info, KeyRound, ListChecks, Loader2, MapPin, RefreshCw, Sparkles, Square, Upload, X } from 'lucide-react';
 import type { Emirate, Site, System } from '../types';
 import { getApiKey, explainError } from '../lib/ai';
 import { estimate, inspect, type PickedDrawing } from '../lib/drawing-files';
 import { analyzeDrawings, checkLocation, FIELD_LABEL, parseField, type Analysis, type FieldKey, type Finding } from '../lib/drawing-analysis';
 import { satellite } from '../lib/satellite';
 import { findPlace, reverseGeocode } from '../lib/geocode';
+import type { NewScopeItem } from '../store/store';
 import { toast } from './ui';
 import { fileSize, uid } from '../lib/util';
 
@@ -14,29 +15,17 @@ export type SiteDraft = Omit<Site, 'id' | 'createdAt'>;
 
 /** Writes one parsed value into the form draft */
 function applyValue(d: SiteDraft, key: FieldKey, v: NonNullable<ReturnType<typeof parseField>>): SiteDraft {
-  if (key.startsWith('fa.')) return { ...d, fa: { ...d.fa, [key.slice(3)]: v as number } };
-  if (key.startsWith('ff.')) return { ...d, ff: { ...d.ff, [key.slice(3)]: v as number } };
   switch (key) {
     case 'emirate':
       return { ...d, emirate: v as Emirate };
     case 'systems':
       return { ...d, systems: v as System[] };
-    case 'buildingType':
-    case 'structure':
-    case 'ceiling':
-    case 'ceilingHeight':
-    case 'voidDepth':
-    case 'floors':
-    case 'basements':
-    case 'conditioned':
-      return { ...d, conditions: { ...d.conditions, [key]: v } };
     default:
       return { ...d, [key]: v };
   }
 }
 
-const shown = (key: FieldKey, v: ReturnType<typeof parseField>) =>
-  v === null ? '' : Array.isArray(v) ? v.join(' + ') : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : key === 'ceiling' || key === 'buildingType' ? String(v).replace('-', ' ') : String(v);
+const shown = (v: ReturnType<typeof parseField>) => (v === null ? '' : Array.isArray(v) ? v.join(' + ') : String(v));
 
 interface Props {
   draft: SiteDraft;
@@ -47,11 +36,13 @@ interface Props {
   pin: { lat: number; lng: number } | null;
   onPin: (p: { lat: number; lng: number }) => void;
   onFilled: (keys: FieldKey[]) => void;
+  /** adds the chosen items to the new site's scope list */
+  onScope: (items: NewScopeItem[]) => void;
 }
 
 type Status = 'idle' | 'reading' | 'done' | 'error';
 
-export default function DrawingAssistant({ draft, setDraft, picked, setPicked, pin, onPin, onFilled }: Props) {
+export default function DrawingAssistant({ draft, setDraft, picked, setPicked, pin, onPin, onFilled, onScope }: Props) {
   const [status, setStatus] = useState<Status>('idle');
   const [stage, setStage] = useState('');
   const [elapsed, setElapsed] = useState(0);
@@ -65,6 +56,8 @@ export default function DrawingAssistant({ draft, setDraft, picked, setPicked, p
   const [readSig, setReadSig] = useState('');
   const [drag, setDrag] = useState(false);
   const [filledCount, setFilledCount] = useState(0);
+  const [useScope, setUseScope] = useState<Record<number, boolean>>({});
+  const [scopeAdded, setScopeAdded] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const hasKey = !!getApiKey();
@@ -111,6 +104,8 @@ export default function DrawingAssistant({ draft, setDraft, picked, setPicked, p
       setUse(Object.fromEntries(run.result.fields.map((f, i) => [i, f.confidence !== 'low' && parseField(f.key, f.value) !== null])));
       setAnswers({});
       setFilledCount(0);
+      setUseScope(Object.fromEntries(run.result.scope_items.map((_, i) => [i, true])));
+      setScopeAdded(0);
       setLoc(pin && run.result.location.check !== 'no_location' ? { check: run.result.location.check, explanation: run.result.location.explanation, pinKey } : null);
       setReadSig(sig);
       setStatus('done');
@@ -161,6 +156,17 @@ export default function DrawingAssistant({ draft, setDraft, picked, setPicked, p
     } else {
       setDraft((d) => ({ ...d, notes: [d.notes, `${q.question} — ${opt.label}`].filter(Boolean).join('\n') }));
     }
+  };
+
+  const addScope = () => {
+    if (!result) return;
+    const list = result.scope_items
+      .filter((_, i) => useScope[i])
+      .map((x) => ({ text: x.text, system: x.system === 'general' ? null : x.system, kind: 'scope' as const }));
+    if (!list.length) return;
+    onScope(list);
+    setScopeAdded(list.length);
+    toast(`${list.length} item${list.length === 1 ? '' : 's'} added to the scope list`);
   };
 
   const addNotes = () => {
@@ -214,7 +220,7 @@ export default function DrawingAssistant({ draft, setDraft, picked, setPicked, p
           <h2 className="h2">
             <Sparkles className="assist__icon" aria-hidden /> Start from the drawings
           </h2>
-          <p className="muted small">Add the drawing PDFs or photos. They’re read in the background and the form below is filled in for you to check.</p>
+          <p className="muted small">Add the drawing PDFs or photos. They’re read in the background: the project details are filled in and the scope list is written for you to check.</p>
         </div>
       </div>
 
@@ -319,6 +325,10 @@ export default function DrawingAssistant({ draft, setDraft, picked, setPicked, p
             answers={answers}
             answer={answer}
             addNotes={addNotes}
+            useScope={useScope}
+            setUseScope={setUseScope}
+            addScope={addScope}
+            scopeAdded={scopeAdded}
             pin={pin}
             loc={loc && loc.pinKey === pinKey ? loc : null}
             pinMoved={!!loc && loc.pinKey !== pinKey}
@@ -344,6 +354,10 @@ function Results(props: {
   answers: Record<string, string>;
   answer: (q: Analysis['questions'][number], o: { label: string; value: string }) => void;
   addNotes: () => void;
+  useScope: Record<number, boolean>;
+  setUseScope: (fn: (u: Record<number, boolean>) => Record<number, boolean>) => void;
+  addScope: () => void;
+  scopeAdded: number;
   pin: { lat: number; lng: number } | null;
   loc: { check: string; explanation: string } | null;
   pinMoved: boolean;
@@ -429,7 +443,7 @@ function Results(props: {
                       </td>
                       <td className="nowrap">{FIELD_LABEL[f.key]}</td>
                       <td>
-                        <b>{v === null ? f.value : shown(f.key, v)}</b>
+                        <b>{v === null ? f.value : shown(v)}</b>
                         <small className="block muted">{f.source}</small>
                       </td>
                       <td className="nowrap">
@@ -446,6 +460,46 @@ function Results(props: {
           </button>
         </div>
       )}
+
+      {/* scope list */}
+      {result.scope_items.length > 0 &&
+        (props.scopeAdded ? (
+          <div className="filled">
+            <ListChecks aria-hidden />
+            <span className="grow">
+              {props.scopeAdded} item{props.scopeAdded === 1 ? '' : 's'} added to the scope list — see them under “Scope of work”.
+            </span>
+          </div>
+        ) : (
+          <div className="stack">
+            <div className="row row--between row--wrap">
+              <h3 className="h3">Scope list from the drawings</h3>
+              <span className="muted small">Untick anything you don't want</span>
+            </div>
+            <ul className="scope-picks">
+              {result.scope_items.map((x, i) => (
+                <li key={i}>
+                  <label>
+                    <input type="checkbox" checked={!!props.useScope[i]} onChange={(e) => props.setUseScope((u) => ({ ...u, [i]: e.target.checked }))} />
+                    <span className="grow">
+                      {x.system !== 'general' && <span className={`sys sys--${x.system}`}>{x.system}</span>} {x.text}
+                      <small className="block muted">{x.source}</small>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={props.addScope}
+              disabled={!Object.values(props.useScope).some(Boolean)}
+              style={{ justifySelf: 'start' }}
+            >
+              <ListChecks /> Add {Object.values(props.useScope).filter(Boolean).length} items to the scope list
+            </button>
+          </div>
+        ))}
 
       {/* questions */}
       {result.questions.length > 0 && (
@@ -510,7 +564,7 @@ function Results(props: {
         </details>
       )}
 
-      <p className="muted small">Reading cost about ${props.cost.toFixed(2)}, charged to your Anthropic account. Always check quantities against the approved BOQ.</p>
+      <p className="muted small">Reading cost about ${props.cost.toFixed(2)}, charged to your Anthropic account. Check the list against the approved drawings and BOQ.</p>
     </div>
   );
 }

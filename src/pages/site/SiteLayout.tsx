@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom';
-import { ArrowLeft, Camera, ClipboardList, FileText, Gauge, Layers, Package, Pencil, Receipt, Users } from 'lucide-react';
+import { ArrowLeft, Camera, ClipboardList, FileText, Gauge, ListChecks, Package, Pencil, Receipt, Users } from 'lucide-react';
 import { useSummaries, type SiteSummary } from '../../store/hooks';
 import { Bar, Delta, Empty, StatusDot, SysTag } from '../../components/ui';
 import { daysBetween, fmtSheetDate, placeName, today } from '../../lib/util';
@@ -8,7 +8,7 @@ const TABS = [
   { to: '', label: 'Overview', icon: Gauge, end: true },
   { to: 'daily', label: 'Today', icon: ClipboardList },
   { to: 'team', label: 'Team', icon: Users },
-  { to: 'scope', label: 'Scope & progress', icon: Layers },
+  { to: 'scope', label: 'Scope', icon: ListChecks },
   { to: 'materials', label: 'Materials', icon: Package },
   { to: 'expenses', label: 'Expenses', icon: Receipt },
   { to: 'photos', label: 'Photos', icon: Camera },
@@ -71,7 +71,7 @@ export default function SiteLayout() {
             <div className="site-head__pct">
               <span className="display">{Math.round(progress.overall * 100)}<small>%</small></span>
               <span className="label">
-                Overall <Delta v={s.delta} />
+                {progress.done} of {progress.total} done <Delta v={s.delta} />
               </span>
             </div>
             <div className="site-head__bars">

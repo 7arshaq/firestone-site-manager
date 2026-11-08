@@ -11,58 +11,6 @@ export type Emirate =
 
 export type SiteStatus = 'active' | 'on-hold' | 'snagging' | 'completed';
 
-export type BuildingType =
-  | 'tower'
-  | 'villa'
-  | 'warehouse'
-  | 'mall'
-  | 'school'
-  | 'hospital'
-  | 'hotel'
-  | 'office'
-  | 'labour-camp';
-
-export type CeilingType = 'false-ceiling' | 'exposed' | 'mixed';
-export type StructureType = 'concrete' | 'steel';
-
-export interface SiteConditions {
-  buildingType: BuildingType;
-  structure: StructureType;
-  ceiling: CeilingType;
-  /** clear height to slab / roof, metres */
-  ceilingHeight: number;
-  /** false-ceiling void depth, metres */
-  voidDepth: number;
-  floors: number;
-  basements: number;
-  /** building is air-conditioned (affects sprinkler temperature rating) */
-  conditioned: boolean;
-}
-
-/** Fire alarm quantities from the approved drawings / BOQ */
-export interface FAScope {
-  panels: number;
-  loops: number;
-  smoke: number;
-  heat: number;
-  beam: number;
-  mcp: number;
-  sounders: number;
-  modules: number;
-}
-
-/** Fire fighting quantities from the approved drawings / BOQ */
-export interface FFScope {
-  sprinklers: number;
-  pipeMeters: number;
-  hoseReels: number;
-  landingValves: number;
-  hydrants: number;
-  alarmValves: number;
-  pumpSets: number;
-  extinguishers: number;
-}
-
 export interface Site {
   id: string;
   code: string;
@@ -76,29 +24,30 @@ export interface Site {
   lng: number;
   status: SiteStatus;
   systems: System[];
-  /** share of FA in overall progress when both systems are in scope, 0–100 */
-  faShare: number;
   startDate: string;
   targetDate: string;
-  conditions: SiteConditions;
-  fa: FAScope;
-  ff: FFScope;
   notes: string;
   createdAt: string;
 }
 
-/** A measurable piece of scope. Progress = done / qty, weighted. */
-export interface WorkItem {
+export type ScopeKind = 'scope' | 'variation' | 'found';
+
+/**
+ * One line of the site's scope, written as a sentence — a to-do item.
+ * kind: `scope` = original scope, `variation` = instructed change, `found` = pending work found on site later.
+ */
+export interface ScopeItem {
   id: string;
   siteId: string;
-  system: System;
-  key: string;
-  label: string;
-  unit: string;
-  qty: number;
-  weight: number;
-  /** progress already achieved before tracking started */
-  baseDone: number;
+  text: string;
+  /** null = general work, not FA or FF */
+  system: System | null;
+  kind: ScopeKind;
+  addedOn: string;
+  /** date it was finished; null while pending */
+  doneOn: string | null;
+  /** position in the list (lower first) */
+  order: number;
 }
 
 export type Role = 'foreman' | 'technician' | 'helper';
@@ -121,12 +70,11 @@ export interface Task {
   id: string;
   siteId: string;
   date: string;
-  workItemId: string | null;
+  /** the scope list item this task works on, if any */
+  scopeItemId: string | null;
   title: string;
   location: string;
   assignees: string[];
-  plannedQty: number;
-  doneQty: number;
   status: TaskStatus;
   blockReason: string;
   note: string;
@@ -168,10 +116,12 @@ export interface MaterialTxn {
   note: string;
 }
 
+/** A material the site needs, typed in by the engineer */
 export interface CustomMaterial {
   key: string;
   siteId: string;
-  system: System;
+  /** null = general (not FA or FF) */
+  system: System | null;
   name: string;
   unit: string;
   qty: number;
@@ -204,7 +154,8 @@ export interface PhotoMeta {
   date: string;
   caption: string;
   tag: string;
-  workItemId: string | null;
+  /** the scope list item this photo shows, if any */
+  scopeItemId: string | null;
   width: number;
   height: number;
   createdAt: string;
@@ -217,21 +168,6 @@ export interface Settings {
   engineerPin: string;
 }
 
-export interface MaterialLine {
-  key: string;
-  system: System;
-  group: string;
-  name: string;
-  unit: string;
-  qty: number;
-  /** plain-language reason, shown in the table */
-  basis: string;
-  /** sprinkler bulb colour for temperature-rated heads */
-  bulb?: string;
-  custom?: boolean;
-  overridden?: boolean;
-}
-
 /** A drawing file kept with a site (PDF or image); the bytes live in IndexedDB */
 export interface DrawingMeta {
   id: string;
@@ -241,17 +177,6 @@ export interface DrawingMeta {
   size: number;
   pages: number;
   addedAt: string;
-  /** 'markup' = a highlighted progress drawing */
+  /** 'markup' = a highlighted progress drawing (Version 1) */
   tag?: 'markup';
-}
-
-/** A dated change to a stage's recorded quantity, e.g. from reading highlighted drawings */
-export interface ProgressAdjustment {
-  id: string;
-  siteId: string;
-  date: string;
-  workItemId: string;
-  /** added to the stage's done quantity on this date (negative corrects an over-count) */
-  qty: number;
-  note: string;
 }

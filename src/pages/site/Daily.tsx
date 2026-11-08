@@ -1,33 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ClipboardList, CornerDownRight, Plus, UserPlus, Wand2 } from 'lucide-react';
+import { ArrowRight, ClipboardList, CornerDownRight, Plus, UserPlus, Wand2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSiteCtx } from './SiteLayout';
 import { useStore } from '../../store/store';
 import { crewOn, crewBreakdown } from '../../lib/notes';
-import { TaskCard, TaskModal } from '../../components/TaskBits';
+import { KIND_LABEL, TaskCard, TaskModal } from '../../components/TaskBits';
+import ScopeAdd from '../../components/ScopeAdd';
+import { sortScope } from '../../lib/progress';
 import AllocateModal from '../../components/AllocateModal';
 import { Avatar, DateStepper, Empty, toast } from '../../components/ui';
 import { Thumb } from '../../components/Photo';
 import type { Task } from '../../types';
-import { addDays, isMiddayBreakSeason, num, today } from '../../lib/util';
+import { addDays, isMiddayBreakSeason, today } from '../../lib/util';
 
 export default function Daily() {
   const { site } = useSiteCtx();
   const [date, setDate] = useState(today());
-  const [edit, setEdit] = useState<Task | 'new' | null>(null);
+  const [edit, setEdit] = useState<Task | 'new' | { scopeItemId: string } | null>(null);
   const [allocate, setAllocate] = useState(false);
   const d = useStore(
-    useShallow((s) => ({ tasks: s.tasks, workItems: s.workItems, people: s.people, allocations: s.allocations, logs: s.logs, photos: s.photos })),
+    useShallow((s) => ({ tasks: s.tasks, scopeItems: s.scopeItems, people: s.people, allocations: s.allocations, logs: s.logs, photos: s.photos })),
   );
+  const addScopeItems = useStore((s) => s.addScopeItems);
   const carryOver = useStore((s) => s.carryOver);
   const tasks = d.tasks.filter((t) => t.siteId === site.id && t.date === date);
   const order = { blocked: 0, 'in-progress': 1, planned: 2, done: 3 };
   const sorted = [...tasks].sort((a, b) => order[a.status] - order[b.status]);
-  const items = new Map(d.workItems.map((w) => [w.id, w]));
+  const items = new Map(d.scopeItems.map((w) => [w.id, w]));
+  const onPlan = new Set(tasks.map((t) => t.scopeItemId).filter(Boolean));
+  const pending = sortScope(d.scopeItems.filter((i) => i.siteId === site.id && !i.doneOn && !onPlan.has(i.id)));
   const crew = crewOn(d, site.id, date);
   const cb = crewBreakdown(crew);
-  const prevOpen = d.tasks.filter((t) => t.siteId === site.id && t.date === addDays(date, -1) && t.status !== 'done').length;
+  // unfinished work from yesterday that isn't on today's list yet
+  const onToday = new Set(tasks.map((t) => `${t.scopeItemId}|${t.title}`));
+  const prevOpen = d.tasks.filter((t) => t.siteId === site.id && t.date === addDays(date, -1) && t.status !== 'done' && !onToday.has(`${t.scopeItemId}|${t.title}`)).length;
   const photos = d.photos.filter((p) => p.siteId === site.id && p.date === date);
 
   return (
@@ -47,7 +54,7 @@ export default function Daily() {
             </button>
           )}
           <button className="btn btn--sm btn--primary" onClick={() => setEdit('new')}>
-            <Plus /> Add task
+            <Plus /> Assign work
           </button>
         </div>
       </div>
@@ -64,7 +71,7 @@ export default function Daily() {
           {sorted.length ? (
             <div className="task-list">
               {sorted.map((t) => (
-                <TaskCard key={t.id} task={t} item={t.workItemId ? items.get(t.workItemId) : undefined} people={d.people} onEdit={() => setEdit(t)} />
+                <TaskCard key={t.id} task={t} item={t.scopeItemId ? items.get(t.scopeItemId) : undefined} people={d.people} onEdit={() => setEdit(t)} />
               ))}
             </div>
           ) : (
@@ -74,17 +81,59 @@ export default function Daily() {
                 title="No tasks for this day"
                 action={
                   <button className="btn btn--primary" onClick={() => setEdit('new')}>
-                    <Plus /> Add the first task
+                    <Plus /> Assign work
                   </button>
                 }
               >
-                Plan the day's work by scope activity. Quantities entered here update the site's progress.
+                Pick pending work from the scope list on the right and assign it to the team. When a task is marked Done, it's ticked off the
+                scope list.
               </Empty>
             </div>
           )}
         </section>
 
         <aside className="stack stack--lg">
+          <section className="card">
+            <div className="card__head">
+              <div>
+                <h2 className="h2">Pending work · {pending.length}</h2>
+                <p className="muted small">From the scope list — assign it to the team for this day.</p>
+              </div>
+              <Link to="../scope" relative="path" className="btn btn--sm btn--ghost">
+                Scope <ArrowRight />
+              </Link>
+            </div>
+            {pending.length > 0 && (
+              <ul className="pending-list">
+                {pending.slice(0, 12).map((i) => (
+                  <li key={i.id}>
+                    <span className="grow">
+                      {i.system && <span className={`sys sys--${i.system}`}>{i.system}</span>} {i.text}
+                      {i.kind !== 'scope' && <span className={`kind kind--${i.kind}`}>{KIND_LABEL[i.kind]}</span>}
+                    </span>
+                    <button className="btn btn--sm" onClick={() => setEdit({ scopeItemId: i.id })}>
+                      <UserPlus /> Assign
+                    </button>
+                  </li>
+                ))}
+                {pending.length > 12 && (
+                  <li className="muted small">
+                    <Link to="../scope" relative="path">{pending.length - 12} more on the scope list</Link>
+                  </li>
+                )}
+              </ul>
+            )}
+            <div className="card__body">
+              <ScopeAdd
+                compact
+                systems={site.systems}
+                defaultKind="found"
+                placeholder="Found more work on site? Type it here to add it to the list"
+                onAdd={(list) => addScopeItems(site.id, list.map((x) => ({ ...x, addedOn: date })))}
+              />
+            </div>
+          </section>
+
           <section className="card">
             <div className="card__head">
               <div>
@@ -145,7 +194,8 @@ export default function Daily() {
         <TaskModal
           site={site}
           date={date}
-          task={edit === 'new' ? undefined : edit}
+          task={edit === 'new' || !('id' in edit) ? undefined : edit}
+          scopeItemId={edit !== 'new' && 'scopeItemId' in edit && !('id' in edit) ? edit.scopeItemId : undefined}
           crewIds={crew.map((p) => p.id)}
           onClose={() => setEdit(null)}
         />
@@ -158,23 +208,21 @@ export default function Daily() {
 function LogCard({ siteId, date }: { siteId: string; date: string }) {
   const log = useStore((s) => s.logs.find((l) => l.siteId === siteId && l.date === date));
   const saveLog = useStore((s) => s.saveLog);
-  const d = useStore(useShallow((s) => ({ tasks: s.tasks, workItems: s.workItems })));
+  const tasks = useStore((s) => s.tasks);
   const [f, setF] = useState({ summary: '', issues: '', inspections: '', nextPlan: '' });
   useEffect(() => {
     setF({ summary: log?.summary ?? '', issues: log?.issues ?? '', inspections: log?.inspections ?? '', nextPlan: log?.nextPlan ?? '' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, date, log?.id]);
 
-  const draft = useMemo(() => {
-    const items = new Map(d.workItems.map((w) => [w.id, w]));
-    return d.tasks
-      .filter((t) => t.siteId === siteId && t.date === date && t.doneQty > 0)
-      .map((t) => {
-        const w = t.workItemId ? items.get(t.workItemId) : undefined;
-        return `${t.title}${t.location ? ` at ${t.location}` : ''}: ${num(t.doneQty)}${w ? ` ${w.unit}` : ''}`;
-      })
-      .join('. ');
-  }, [d, siteId, date]);
+  const draft = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.siteId === siteId && t.date === date && (t.status === 'done' || t.status === 'in-progress'))
+        .map((t) => `${t.title}${t.location ? ` at ${t.location}` : ''}${t.status === 'done' ? ' — done' : ' — in progress'}`)
+        .join('. '),
+    [tasks, siteId, date],
+  );
 
   const field = (k: keyof typeof f, label: string, placeholder: string, rows = 2) => (
     <label className="field">

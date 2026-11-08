@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Minus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, Check, CheckCircle2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import type { Person, Site, Task, TaskStatus, WorkItem } from '../types';
+import type { Person, ScopeItem, Site, Task, TaskStatus } from '../types';
 import { useStore } from '../store/store';
-import { siteProgress } from '../lib/progress';
-import { Avatar, Modal, NumField, toast } from './ui';
-import { firstName, num } from '../lib/util';
+import { sortScope } from '../lib/progress';
+import { Avatar, Modal, toast } from './ui';
+import { firstName } from '../lib/util';
 
 export const TASK_STATUS: { value: TaskStatus; label: string }[] = [
   { value: 'planned', label: 'Planned' },
@@ -13,6 +13,8 @@ export const TASK_STATUS: { value: TaskStatus; label: string }[] = [
   { value: 'done', label: 'Done' },
   { value: 'blocked', label: 'On hold' },
 ];
+
+export const KIND_LABEL = { scope: 'Scope', variation: 'Variation', found: 'Found on site' } as const;
 
 /* ---------------- Task card ---------------- */
 
@@ -24,7 +26,7 @@ export function TaskCard({
   compact,
 }: {
   task: Task;
-  item?: WorkItem;
+  item?: ScopeItem;
   people: Person[];
   onEdit?: () => void;
   compact?: boolean;
@@ -33,26 +35,12 @@ export function TaskCard({
   const deleteTask = useStore((s) => s.deleteTask);
   const [menu, setMenu] = useState(false);
   const who = task.assignees.map((id) => people.find((p) => p.id === id)).filter(Boolean) as Person[];
-  const frac = task.plannedQty > 0 ? Math.min(1, task.doneQty / task.plannedQty) : task.status === 'done' ? 1 : 0;
-  const step = item ? (item.unit === 'm' ? 10 : 1) : 1;
-
-  const setStatus = (status: TaskStatus) => {
-    const patch: Partial<Task> = { status };
-    if (status === 'done' && task.doneQty === 0 && task.plannedQty > 0) patch.doneQty = task.plannedQty;
-    updateTask(task.id, patch);
-  };
-
-  const setQty = (n: number) => {
-    const patch: Partial<Task> = { doneQty: Math.max(0, n) };
-    if (task.status === 'planned' && n > 0) patch.status = 'in-progress';
-    updateTask(task.id, patch);
-  };
 
   return (
     <article className={`task task--${task.status} ${compact ? 'task--compact' : ''}`}>
       <div className="task__head">
         <div className="task__title">
-          {item && <span className={`sys sys--${item.system}`}>{item.system}</span>}
+          {item?.system && <span className={`sys sys--${item.system}`}>{item.system}</span>}
           <h3>
             {task.title}
             {task.location && <span className="task__loc"> — {task.location}</span>}
@@ -84,6 +72,8 @@ export function TaskCard({
         )}
       </div>
 
+      {item && item.kind !== 'scope' && <span className={`kind kind--${item.kind}`}>{KIND_LABEL[item.kind]}</span>}
+
       {task.status === 'blocked' && (
         <label className="task__block">
           <AlertTriangle aria-hidden />
@@ -98,32 +88,6 @@ export function TaskCard({
           />
         </label>
       )}
-
-      <div className="task__qty">
-        {item || task.plannedQty > 0 ? (
-          <>
-            <div className="qty-step" role="group" aria-label="Quantity done">
-              <button type="button" onClick={() => setQty(task.doneQty - step)} aria-label={`Minus ${step}`}>
-                <Minus />
-              </button>
-              <NumField className="qty-step__input" value={task.doneQty} onChange={setQty} aria-label="Quantity done today" />
-              <button type="button" onClick={() => setQty(task.doneQty + step)} aria-label={`Plus ${step}`}>
-                <Plus />
-              </button>
-            </div>
-            <div className="task__meter">
-              <div className={`bar bar--thin ${task.status === 'done' ? 'bar--done' : ''}`}>
-                <i style={{ width: `${frac * 100}%` }} />
-              </div>
-              <span className="mono small">
-                {num(task.doneQty)} / {num(task.plannedQty)} {item?.unit ?? ''}
-              </span>
-            </div>
-          </>
-        ) : (
-          <span className="muted small">Not measured by quantity</span>
-        )}
-      </div>
 
       <div className="task__foot">
         <div className="task__who">
@@ -140,13 +104,18 @@ export function TaskCard({
         </div>
         <div className="status-seg" role="group" aria-label="Task status">
           {TASK_STATUS.map((s) => (
-            <button key={s.value} type="button" aria-pressed={task.status === s.value} className={`is-${s.value}`} onClick={() => setStatus(s.value)}>
+            <button key={s.value} type="button" aria-pressed={task.status === s.value} className={`is-${s.value}`} onClick={() => updateTask(task.id, { status: s.value })}>
               {s.value === 'done' && task.status === 'done' && <Check aria-hidden />}
               {s.label}
             </button>
           ))}
         </div>
       </div>
+      {item && task.status === 'done' && item.doneOn && (
+        <p className="task__ticked">
+          <CheckCircle2 aria-hidden /> Ticked off the scope list
+        </p>
+      )}
       {task.note && <p className="task__note">{task.note}</p>}
     </article>
   );
@@ -158,104 +127,103 @@ export function TaskModal({
   site,
   date,
   task,
+  scopeItemId,
   crewIds,
   onClose,
 }: {
   site: Site;
   date: string;
   task?: Task;
+  /** start a new task on this scope list item */
+  scopeItemId?: string;
   crewIds: string[];
   onClose: () => void;
 }) {
-  const d = useStore(useShallow((s) => ({ workItems: s.workItems, tasks: s.tasks, people: s.people, adjustments: s.adjustments })));
+  const d = useStore(useShallow((s) => ({ scopeItems: s.scopeItems, people: s.people })));
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
-  const prog = useMemo(() => siteProgress(site, d.workItems, d.tasks, undefined, d.adjustments), [site, d.workItems, d.tasks, d.adjustments]);
+  const items = sortScope(d.scopeItems.filter((i) => i.siteId === site.id));
+  const preset = items.find((i) => i.id === scopeItemId);
   const [f, setF] = useState<Omit<Task, 'id' | 'updatedAt'>>(
     task ?? {
-      siteId: site.id, date, workItemId: null, title: '', location: '', assignees: [], plannedQty: 0, doneQty: 0,
+      siteId: site.id, date, scopeItemId: preset?.id ?? null, title: preset?.text ?? '', location: '', assignees: [],
       status: 'planned', blockReason: '', note: '', updatedBy: 'engineer',
     },
   );
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
-  const item = prog.items.find((p) => p.item.id === f.workItemId);
+  const item = items.find((i) => i.id === f.scopeItemId);
+  // pending items, plus the one this task is already on (even if it's been ticked off)
+  const choices = items.filter((i) => !i.doneOn || i.id === f.scopeItemId);
   const people = d.people.filter((p) => p.active);
   const onSite = people.filter((p) => crewIds.includes(p.id));
   const others = people.filter((p) => !crewIds.includes(p.id));
 
   const pickItem = (id: string) => {
-    const p = prog.items.find((x) => x.item.id === id);
+    const next = items.find((x) => x.id === id);
     setF((x) => ({
       ...x,
-      workItemId: id || null,
-      title: p && (!x.title || prog.items.some((q) => q.item.label === x.title)) ? p.item.label : x.title,
+      scopeItemId: id || null,
+      title: next && (!x.title || items.some((q) => q.text === x.title)) ? next.text : x.title,
     }));
   };
   const toggle = (id: string) => set('assignees', f.assignees.includes(id) ? f.assignees.filter((a) => a !== id) : [...f.assignees, id]);
 
   const save = () => {
-    if (!f.title.trim()) return toast('Add a task name first');
-    const out = { ...f };
-    if (out.status === 'planned' && out.doneQty > 0) out.status = out.plannedQty > 0 && out.doneQty >= out.plannedQty ? 'done' : 'in-progress';
+    if (!f.title.trim()) return toast('Write what the work is first');
     if (task) {
-      updateTask(task.id, out);
+      updateTask(task.id, f);
       toast('Task updated');
     } else {
-      addTask(out);
-      toast('Task added');
+      addTask(f);
+      toast(f.assignees.length ? `Assigned to ${f.assignees.length} ${f.assignees.length === 1 ? 'person' : 'people'}` : 'Task added');
     }
     onClose();
   };
 
+  const group = (label: string, list: ScopeItem[]) =>
+    list.length ? (
+      <optgroup key={label} label={label}>
+        {list.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.kind === 'variation' ? '[Variation] ' : i.kind === 'found' ? '[Found] ' : ''}
+            {i.text.length > 90 ? `${i.text.slice(0, 88)}…` : i.text}
+            {i.doneOn ? ' (ticked off)' : ''}
+          </option>
+        ))}
+      </optgroup>
+    ) : null;
+
   return (
     <Modal
-      title={task ? 'Edit task' : 'Add task'}
+      title={task ? 'Edit task' : 'Assign work'}
       eyebrow={`${site.code} · ${date}`}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn--primary" onClick={save}>{task ? 'Save task' : 'Add task'}</button>
+          <button className="btn btn--primary" onClick={save}>{task ? 'Save task' : 'Assign'}</button>
         </>
       }
     >
       <div className="stack">
         <label className="field">
-          <span>Scope activity</span>
-          <select className="select" value={f.workItemId ?? ''} onChange={(e) => pickItem(e.target.value)}>
-            <option value="">Other work (doesn't count towards progress)</option>
-            {(['FA', 'FF'] as const).map((sys) =>
-              site.systems.includes(sys) ? (
-                <optgroup key={sys} label={sys === 'FA' ? 'Fire alarm' : 'Fire fighting'}>
-                  {prog.items
-                    .filter((p) => p.item.system === sys)
-                    .map((p) => (
-                      <option key={p.item.id} value={p.item.id}>
-                        {p.item.label} — {Math.round(p.frac * 100)}% ({num(p.item.qty - p.done)} {p.item.unit} left)
-                      </option>
-                    ))}
-                </optgroup>
-              ) : null,
-            )}
+          <span>From the scope list</span>
+          <select className="select" value={f.scopeItemId ?? ''} onChange={(e) => pickItem(e.target.value)}>
+            <option value="">Other work (not on the scope list)</option>
+            {group('Fire alarm', choices.filter((i) => i.system === 'FA'))}
+            {group('Fire fighting', choices.filter((i) => i.system === 'FF'))}
+            {group('General', choices.filter((i) => !i.system))}
           </select>
-          {item && <small>Quantities you enter here add to “{item.item.label}” and update site progress.</small>}
+          {item ? <small>When this task is marked Done, the item is ticked off the scope list.</small> : !choices.length && <small>The scope list has nothing pending. Add work in the Scope tab.</small>}
         </label>
         <div className="form-grid form-grid--2">
-          <label className="field">
-            <span>Task</span>
-            <input className="input" value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Cable pulling" />
+          <label className="field span-all">
+            <span>Work to do</span>
+            <input className="input" value={f.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Fix smoke detectors in L3 corridor" />
           </label>
-          <label className="field">
+          <label className="field span-all">
             <span>Location</span>
-            <input className="input" value={f.location} onChange={(e) => set('location', e.target.value)} placeholder="e.g. L18 corridor, Bay 3" />
-          </label>
-          <label className="field">
-            <span>Target today{item ? ` (${item.item.unit})` : ''}</span>
-            <NumField value={f.plannedQty} onChange={(n) => set('plannedQty', n)} />
-          </label>
-          <label className="field">
-            <span>Done{item ? ` (${item.item.unit})` : ''}</span>
-            <NumField value={f.doneQty} onChange={(n) => set('doneQty', n)} />
+            <input className="input" value={f.location} onChange={(e) => set('location', e.target.value)} placeholder="Optional — e.g. L18 corridor, Bay 3" />
           </label>
         </div>
         <div className="field">
@@ -293,6 +261,7 @@ export function TaskModal({
                 </div>
               </details>
             )}
+            {!people.length && <small className="muted">No team yet — add people in the site's Team tab.</small>}
           </div>
         </div>
         <label className="field">

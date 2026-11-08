@@ -18,6 +18,8 @@
 
 ![Map of the UAE drawn as an engineering sheet, with every site and its progress](docs/screenshots/map-light.png)
 
+> **Version 2** — the scope is a simple to-do list. Version 1 (device quantities, weighted stages and worked-out materials) is kept as the `v1.0` tag and the `version-1` branch. See [Versions](#versions).
+
 > The app starts empty. To look around first, open **Settings → Load sample data** (8 example sites, 22 crew, two weeks of history). Everything you add stays in your own browser.
 
 ## Why
@@ -29,13 +31,11 @@ A site engineer running several fire safety installations at once juggles WhatsA
 | | |
 |---|---|
 | **Map home** | The UAE drawn as an engineering drawing sheet — zone grid on a real 0.5° graticule (A–K / 1–6), title block, north arrow and scale. Each site is a pin with a progress ring; its grid reference (e.g. `F3`) links the list and the map. Everything about a site — team, today's tasks, materials, expenses, photos, reports — lives inside that site. |
-| **Start from the drawings** | When adding a site, drop in the drawing PDFs or photos. Claude reads the title blocks, legends and device schedules in the background, fills in the project details, building conditions and FA/FF quantities for you to check, asks a few simple questions about anything unclear, and compares the drawings with the pin on a satellite view. Uses your own Claude API key (Settings → Drawing reader); the drawings are kept with the site. |
-| **Scope → progress %** | Enter FA/FF quantities from the approved drawings. The app builds weighted installation stages (containment → cabling → devices → panel → testing → Civil Defence) and calculates FA, FF and overall progress. |
-| **Progress from highlighted drawings** | For lump-sum work where counting every head is impractical: drop in the drawings your team has highlighted (in a PDF app, or with pens on paper and scanned). Claude reads each colour, you confirm what it means, and the stage percentages update. |
-| **Daily tasks** | Tasks per technician and helper with quantity targets, status, hold-ups (with reason), one-tap carry-over and a daily log. Quantities entered on tasks move the site's progress. |
+| **Scope as a to-do list** | Write the site's scope as sentences — one item per line, FA, FF or general. Add variations and pending work found on site as they come up. Progress is simply the share of items ticked off, per system and overall; no quantities or weights to keep up to date. |
+| **Start from the drawings** | When adding a site, drop in the drawing PDFs or photos. Claude reads them in the background, fills in the project details, writes a first scope list for you to check, asks a few simple questions about anything unclear, and compares the drawings with the pin on a satellite view. Uses your own Claude API key (Settings → Drawing reader); the drawings are kept with the site. |
+| **Daily tasks** | Each day, assign pending items from the scope list to the team. Tasks have a status, hold-ups (with reason), one-tap carry-over and a daily log. Marking a task Done ticks its item off the scope list. |
 | **Team per site** | Each site's Team tab: choose the day's crew, bring people over from another site, mark leave or absence, repeat yesterday's crew, and add new technicians and helpers right there. |
-| **Materials by site conditions** | Required quantities worked out from the scope *and* the building: void detectors when the ceiling void is over 800 mm, 79 °C heads in non-air-conditioned spaces, NFPA 13 hanger spacing and spare heads, grooved vs threaded pipe, beam clamps on steel. The reason is shown next to every line. |
-| **Materials on site** | For every material: needed (from the drawings), requested, delivered, used and on site, with low-stock alerts. Material requests are saved as “requested” until delivered and sent as a WhatsApp message; deliveries carry DN numbers. |
+| **Materials on site** | Type each material the site needs and how much. For each one: needed, requested, delivered, used and on site, with low-stock alerts. Material requests are saved as “requested” until delivered and sent as a WhatsApp message; deliveries carry DN numbers. |
 | **Expenses & photos** | Running costs by category and site in AED. Photos are taken from the phone camera, compressed and kept on the device. |
 | **Reports** | A4 PDF reports (daily site report, weekly summary, materials, expenses) and WhatsApp-formatted notes (daily progress, all-sites summary, manpower allocation). Site reports are in each site's Report tab; the all-sites ones are under Share on the map. |
 | **Crew mode** | A foreman opens their own task list on a shared site phone with a 4-digit PIN. |
@@ -93,20 +93,27 @@ Pushing to `main` publishes the app to **GitHub Pages** through `.github/workflo
 
 **Where the data lives** — in the browser of the device you use (IndexedDB). There is no server and no account; nothing leaves the device unless you send a PDF or note yourself. Settings → *Download backup* saves everything (optionally with photos) to a file; *Restore* loads it on another phone or laptop.
 
-**Progress** — each system has stages with weights (FA: containment 14, cabling 14, 1st fix 8, detectors 14 …). Stage progress = done ÷ scope; system % = Σ(weight × stage %) ÷ Σ weight. Overall combines FA and FF by an adjustable split (default 40 / 60). Weights, base progress and extra stages are editable per site.
-
-**Material rules** — `src/lib/estimate.ts`. They are planning estimates; every figure can be overridden to match the approved BOQ.
+**Progress** — items ticked off ÷ items on the scope list, for fire alarm, fire fighting and overall. Adding a variation or work found on site adds to the list, so the percentage stays honest about what is left.
 
 ```
 src/
   components/   map sheet, shell, dialogs, charts, task cards
   pages/        map home, add/edit site, settings, crew mode
-  pages/site/   overview, today, team, scope & progress, materials, expenses, photos, report
+  pages/site/   overview, today, team, scope list, materials, expenses, photos, report
   lib/          progress maths, material estimates, PDF and WhatsApp builders
   store/        app data (IndexedDB), photos, display preferences
   data/         UAE boundaries and sample data
 scripts/        build-brand (logos & icons), build-geo (map data)
 ```
+
+## Versions
+
+| | |
+|---|---|
+| **Version 2** (current) | The scope is a to-do list written in sentences. Pending work is assigned to the team day by day; finished items are ticked off. Materials are typed in by hand. |
+| **Version 1** — tag `v1.0`, branch `version-1` | FA/FF device quantities and site conditions; weighted installation stages; materials worked out from the scope and the building; progress read from highlighted drawings. |
+
+Opening Version 2 on a device that used Version 1 converts its data automatically: each stage becomes a scope list item (ticked when it was complete), and the worked-out material list becomes the site's own list, with its deliveries and usage. Version 1 backups can be restored too.
 
 ## Credits
 

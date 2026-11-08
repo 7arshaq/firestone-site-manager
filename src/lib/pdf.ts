@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { autoTable, type UserOptions } from 'jspdf-autotable';
 import type { ExpenseCategory, Site } from '../types';
 import type { Data } from '../store/store';
-import { materialRows, progressDelta, siteProgress } from './progress';
+import { materialGroup, materialRows, progressDelta, siteProgress, sortScope } from './progress';
 import { crewBreakdown, crewOn, ROLE_LABEL } from './notes';
 import { addDays, aed, downloadBlob, fmtDate, fmtDay, fmtSheetDate, num, placeName } from './util';
 import { CATEGORY_LABEL } from './labels';
@@ -245,10 +245,10 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
   ]);
 
   const d = progressDelta(site, data, date);
-  doc.section('Progress');
+  doc.section(`Progress — ${d.now.done} of ${d.now.total} scope items done`);
   if (d.now.FA !== null) doc.bar('Fire alarm', d.now.FA, d.FA, FLAME);
   if (d.now.FF !== null) doc.bar('Fire fighting', d.now.FF, d.FF, WATER);
-  if (d.now.FA !== null && d.now.FF !== null) doc.bar('Overall', d.now.overall, d.overall, INK);
+  doc.bar('Overall', d.now.overall, d.overall, INK);
   doc.y += 2;
 
   const crew = crewOn(data, site.id, date);
@@ -261,29 +261,22 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
     });
   }
 
-  const items = new Map(data.workItems.map((w) => [w.id, w]));
   const tasks = data.tasks.filter((t) => t.siteId === site.id && t.date === date);
   doc.section('Work carried out');
   if (tasks.length) {
     doc.table({
-      head: [['Activity', 'Location', 'Planned', 'Done', 'Status', 'Team']],
-      body: tasks.map((t) => {
-        const w = t.workItemId ? items.get(t.workItemId) : undefined;
-        const u = w ? ` ${w.unit}` : '';
-        return [
-          t.title + (t.status === 'blocked' && t.blockReason ? `\nHold-up: ${t.blockReason}` : ''),
-          t.location,
-          t.plannedQty ? `${num(t.plannedQty)}${u}` : '—',
-          t.doneQty ? `${num(t.doneQty)}${u}` : '—',
-          t.status === 'in-progress' ? 'In progress' : t.status[0].toUpperCase() + t.status.slice(1),
-          t.assignees.map((id) => data.people.find((p) => p.id === id)?.name.split(' ')[0]).filter(Boolean).join(', '),
-        ];
-      }),
-      columnStyles: { 0: { cellWidth: 58 }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      head: [['Work', 'Location', 'Status', 'Team']],
+      body: tasks.map((t) => [
+        t.title + (t.status === 'blocked' && t.blockReason ? `\nHold-up: ${t.blockReason}` : ''),
+        t.location,
+        t.status === 'in-progress' ? 'In progress' : t.status === 'blocked' ? 'On hold' : t.status[0].toUpperCase() + t.status.slice(1),
+        t.assignees.map((id) => data.people.find((p) => p.id === id)?.name.split(' ')[0]).filter(Boolean).join(', '),
+      ]),
+      columnStyles: { 0: { cellWidth: 82 } },
       didParseCell: (h) => {
-        if (h.section === 'body' && h.column.index === 4) {
+        if (h.section === 'body' && h.column.index === 2) {
           const v = String(h.cell.raw);
-          if (v === 'Blocked') h.cell.styles.textColor = FLAME;
+          if (v === 'On hold') h.cell.styles.textColor = FLAME;
           if (v === 'Done') h.cell.styles.textColor = EXIT;
         }
       },
@@ -299,15 +292,26 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
     doc.y += 3;
   }
 
-  doc.section('Scope progress');
-  const prog = siteProgress(site, data.workItems, data.tasks, date, data.adjustments);
-  doc.table({
-    head: [['System', 'Activity', 'Scope', 'Done', '%']],
-    body: prog.items.map((p) => [p.item.system, p.item.label, `${num(p.item.qty)} ${p.item.unit}`, num(p.done), `${Math.round(p.frac * 100)}%`]),
-    columnStyles: { 0: { cellWidth: 16 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
-  });
+  const scope = sortScope(data.scopeItems.filter((i) => i.siteId === site.id && i.addedOn <= date)).map((i) => ({ ...i, doneOn: i.doneOn && i.doneOn <= date ? i.doneOn : null }));
+  if (scope.length) {
+    const pending = scope.filter((i) => !i.doneOn).length;
+    doc.section(`Scope list — ${pending} pending, ${scope.length - pending} done`);
+    doc.table({
+      head: [['System', 'Item', 'Type', 'Status']],
+      body: sortScope(scope).map((i) => [
+        i.system ?? '—',
+        i.text,
+        i.kind === 'variation' ? 'Variation' : i.kind === 'found' ? 'Found on site' : 'Scope',
+        i.doneOn ? `Done ${fmtSheetDate(i.doneOn)}` : 'Pending',
+      ]),
+      columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 100 } },
+      didParseCell: (h) => {
+        if (h.section === 'body' && h.column.index === 3 && String(h.cell.raw).startsWith('Done')) h.cell.styles.textColor = EXIT;
+      },
+    });
+  }
 
-  const { rows } = materialRows(site, data);
+  const rows = materialRows(site, data);
   const names = new Map(rows.map((r) => [r.key, r]));
   const moves = data.txns.filter((t) => t.siteId === site.id && t.date === date);
   if (moves.length) {
@@ -343,8 +347,8 @@ export async function summaryReportPDF(data: Data, date: string, days = 7) {
   doc.table({
     head: [['Code', 'Site', 'Status', 'FA', 'FF', 'Overall', `+ ${days} days`, 'Crew today']],
     body: sites.map((s) => {
-      const now = siteProgress(s, data.workItems, data.tasks, date, data.adjustments);
-      const before = siteProgress(s, data.workItems, data.tasks, addDays(from, -1), data.adjustments);
+      const now = siteProgress(s, data.scopeItems, date);
+      const before = siteProgress(s, data.scopeItems, addDays(from, -1));
       const gain = Math.round((now.overall - before.overall) * 1000) / 10;
       return [
         s.code, s.name, s.status.replace('-', ' '),
@@ -361,13 +365,12 @@ export async function summaryReportPDF(data: Data, date: string, days = 7) {
     const tasks = data.tasks.filter((t) => t.siteId === s.id && t.date >= from && t.date <= date);
     const blocked = tasks.filter((t) => t.status === 'blocked' && t.date === date);
     const logs = data.logs.filter((l) => l.siteId === s.id && l.date >= from && l.date <= date && l.issues);
-    if (!tasks.length && !logs.length) continue;
+    if (!tasks.length && !logs.length && !data.scopeItems.some((i) => i.siteId === s.id)) continue;
     doc.section(`${s.code} · ${s.name}`);
-    const items = new Map(data.workItems.map((w) => [w.id, w]));
-    const byItem = new Map<string, number>();
-    tasks.forEach((t) => t.workItemId && byItem.set(t.workItemId, (byItem.get(t.workItemId) ?? 0) + t.doneQty));
-    const lines = [...byItem.entries()].filter(([, q]) => q > 0).map(([id, q]) => `${items.get(id)?.label}: ${num(q)} ${items.get(id)?.unit}`);
-    doc.paragraph('Done this week', lines.join('  ·  ') || '—');
+    const ticked = data.scopeItems.filter((i) => i.siteId === s.id && i.doneOn && i.doneOn >= from && i.doneOn <= date);
+    const pending = data.scopeItems.filter((i) => i.siteId === s.id && !i.doneOn).length;
+    doc.paragraph(`Done this week (${ticked.length})`, ticked.map((i) => `• ${i.text}`).join('\n') || '—');
+    doc.paragraph('Still pending', `${pending} item${pending === 1 ? '' : 's'} on the scope list`);
     doc.paragraph('Hold-ups', blocked.map((t) => `${t.title} — ${t.blockReason}`).join('\n'));
     doc.paragraph('Issues', [...new Set(logs.map((l) => l.issues))].join('\n'));
     doc.y += 2;
@@ -422,17 +425,14 @@ export async function materialReportPDF(site: Site, data: Data, date: string) {
   doc.titleBlock([
     ['Project', site.name], ['Code', site.code], ['Location', placeName(site)], ['Date', fmtSheetDate(date)],
   ]);
-  const { rows, advisories } = materialRows(site, data);
-  if (advisories.length) {
-    doc.paragraph('Site conditions', advisories.join('\n'));
-    doc.y += 2;
-  }
-  const groups = [...new Set(rows.map((r) => r.group))];
+  const rows = materialRows(site, data);
+  if (!rows.length) doc.paragraph('Materials', 'No materials have been added for this site yet.');
+  const groups = [...new Set(rows.map((r) => materialGroup(r.system)))];
   for (const g of groups) {
     doc.section(g);
     doc.table({
       head: [['Material', 'Unit', 'Needed', 'Requested', 'Delivered', 'Used', 'On site', 'To deliver']],
-      body: rows.filter((r) => r.group === g).map((r) => [r.name, r.unit, num(r.estimate), r.requested ? num(r.requested) : '—', num(r.delivered), num(r.used), num(r.onSite), num(r.toDeliver)]),
+      body: rows.filter((r) => materialGroup(r.system) === g).map((r) => [r.name, r.unit, num(r.needed), r.requested ? num(r.requested) : '—', num(r.delivered), num(r.used), num(r.onSite), num(r.toDeliver)]),
       columnStyles: { 0: { cellWidth: 60 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right', fontStyle: 'bold' }, 7: { halign: 'right' } },
     });
   }

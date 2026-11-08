@@ -1,4 +1,4 @@
-import type { Data } from '../store/store';
+import type { V1Data as Data } from './types';
 
 /** Identifies the built-in sample records exactly, so they can be removed without touching the user's own data. */
 const SAMPLE_SITES = new Set([

@@ -108,7 +108,7 @@ export default function Report() {
               <li>Title block — project, client, contractor, consultant</li>
               <li>FA / FF / overall progress with today's change</li>
               <li>Manpower list, work carried out, hold-ups</li>
-              <li>Scope progress by stage, material movements and needs</li>
+              <li>Scope list — what's done and what's pending — material movements and needs</li>
             </ul>
             <label className="check">
               <input type="checkbox" checked={photos} onChange={(e) => setPhotos(e.target.checked)} />

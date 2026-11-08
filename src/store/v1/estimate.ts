@@ -1,6 +1,6 @@
-import type { MaterialLine, Site } from '../types';
+import type { MaterialLine, V1Site as Site } from './types';
 
-/** Shared quantity take-off used by both the scope (work items) and the materials list. */
+/** Version 1 material take-off from device quantities and site conditions. Kept only to bring Version 1 sites' material lists into Version 2. */
 
 export const PIPE_SPLIT: [number, number][] = [
   [25, 0.38],

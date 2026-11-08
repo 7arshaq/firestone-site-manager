@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, FileDown, Info, PackageCheck, PackageSearch, Plus, RotateCcw, Send, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, ClipboardList, FileDown, Package, PackageCheck, PackageSearch, Plus, Send, Trash2, TriangleAlert, Undo2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSiteCtx } from './SiteLayout';
 import { useStore, getData } from '../../store/store';
-import { materialRows, type MaterialRow } from '../../lib/progress';
+import { materialGroup, materialRows, type MaterialRow } from '../../lib/progress';
 import { materialRequestNote } from '../../lib/notes';
 import { makePdf } from '../../lib/pdfLazy';
-import { Modal, NumField, Seg, SysTag, toast } from '../../components/ui';
+import { Confirm, Empty, Modal, NumField, Seg, SysTag, toast } from '../../components/ui';
 import { ShareText } from '../../components/ShareText';
 import type { MaterialMove, Site, System } from '../../types';
 import { fmtDate, num, today } from '../../lib/util';
@@ -14,6 +14,7 @@ import { fmtDate, num, today } from '../../lib/util';
 type Filter = 'all' | 'requested' | 'onsite' | 'attention';
 
 function statusLabel(r: MaterialRow) {
+  if (r.needed === 0 && r.delivered === 0) return 'No quantity yet';
   if (r.state === 'short') return 'None on site';
   if (r.state === 'low') return 'Running low';
   if (r.state === 'none') return r.requested > 0 ? 'Requested' : 'Not delivered';
@@ -22,30 +23,31 @@ function statusLabel(r: MaterialRow) {
 
 export default function SiteMaterials() {
   const { site } = useSiteCtx();
-  const d = useStore(useShallow((s) => ({ overrides: s.overrides, customMaterials: s.customMaterials, txns: s.txns })));
-  const setOverride = useStore((s) => s.setOverride);
+  const d = useStore(useShallow((s) => ({ customMaterials: s.customMaterials, txns: s.txns })));
+  const updateMaterial = useStore((s) => s.updateCustomMaterial);
   const deleteTxn = useStore((s) => s.deleteTxn);
   const deleteCustom = useStore((s) => s.deleteCustomMaterial);
-  const { rows, advisories } = useMemo(() => materialRows(site, d), [site, d]);
+  const rows = useMemo(() => materialRows(site, d), [site, d]);
+  const [remove, setRemove] = useState<MaterialRow | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [move, setMove] = useState<{ type: MaterialMove; key?: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [request, setRequest] = useState<{ key?: string } | null>(null);
   const [share, setShare] = useState<string | null>(null);
 
-  const needed = rows.filter((r) => r.estimate > 0);
+  const needed = rows.filter((r) => r.needed > 0);
   const requested = rows.filter((r) => r.requested > 0);
   const onSite = rows.filter((r) => r.onSite > 0);
   const attention = rows.filter((r) => r.state === 'short' || r.state === 'low');
   const shown = rows.filter((r) =>
     filter === 'requested' ? r.requested > 0 : filter === 'onsite' ? r.onSite > 0 : filter === 'attention' ? attention.includes(r) : true,
   );
-  const groups = [...new Set(shown.map((r) => r.group))];
+  const groups = [...new Set(shown.map((r) => materialGroup(r.system)))];
   const history = d.txns.filter((t) => t.siteId === site.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
   const names = new Map(rows.map((r) => [r.key, r]));
 
   const tiles: { id: Filter; icon: React.ReactNode; n: number; label: string; warn?: boolean }[] = [
-    { id: 'all', icon: <ClipboardList />, n: needed.length, label: 'Needed as per drawings' },
+    { id: 'all', icon: <ClipboardList />, n: needed.length, label: 'Materials needed for this site' },
     { id: 'requested', icon: <Send />, n: requested.length, label: 'Requested, not delivered yet' },
     { id: 'onsite', icon: <PackageCheck />, n: onSite.length, label: 'On site now' },
     { id: 'attention', icon: <TriangleAlert />, n: attention.length, label: 'Running low or out', warn: attention.length > 0 },
@@ -120,53 +122,56 @@ export default function SiteMaterials() {
                   <tr key={g} className="group-row">
                     <td colSpan={8}>
                       <span className="row">
-                        <SysTag s={g.slice(0, 2) as System} />
-                        <b>{g.slice(5)}</b>
+                        {g !== 'General' && <SysTag s={(g === 'Fire alarm' ? 'FA' : 'FF') as System} />}
+                        <b>{g}</b>
                       </span>
                     </td>
                   </tr>,
                   ...shown
-                    .filter((r) => r.group === g)
+                    .filter((r) => materialGroup(r.system) === g)
                     .map((r) => (
                       <MatRow
                         key={r.key}
                         r={r}
-                        onOverride={(n) => setOverride(site.id, r.key, n)}
+                        onNeeded={(n) => updateMaterial(r.key, { qty: n })}
                         onMove={(type) => setMove({ type, key: r.key })}
                         onRequest={() => setRequest({ key: r.key })}
-                        onDelete={r.custom ? () => deleteCustom(r.key) : undefined}
+                        onDelete={() => setRemove(r)}
                       />
                     )),
                 ])}
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : rows.length ? (
           <p className="card__body muted">
             {filter === 'requested' ? 'Nothing is waiting for delivery.' : filter === 'onsite' ? 'Nothing has been delivered yet.' : 'Nothing running low.'}
           </p>
+        ) : (
+          <Empty
+            icon={<Package />}
+            title="No materials yet"
+            action={
+              <button className="btn btn--primary" onClick={() => setAdding(true)}>
+                <Plus /> Add the first material
+              </button>
+            }
+          >
+            Add each material this site needs and how much — from the drawings or BOQ. Then request, record deliveries and track what's on
+            site.
+          </Empty>
         )}
-        <div className="card__body row row--between row--wrap" style={{ borderTop: '1px solid var(--rule)' }}>
-          <p className="muted small" style={{ maxWidth: 640 }}>
-            “Needed” is worked out from the drawing quantities and site conditions. Change any figure to match your approved BOQ; the reason
-            for each one shows under the name.
-          </p>
-          <button className="btn btn--sm" onClick={() => setAdding(true)}>
-            <Plus /> Add material
-          </button>
-        </div>
-      </section>
-
-      {advisories.length > 0 && (
-        <section className="conditions">
-          <span className="label">Checked against site conditions</span>
-          {advisories.map((a) => (
-            <p key={a} className="advisory">
-              <Info aria-hidden /> {a}
+        {rows.length > 0 && (
+          <div className="card__body row row--between row--wrap" style={{ borderTop: '1px solid var(--rule)' }}>
+            <p className="muted small" style={{ maxWidth: 640 }}>
+              Type how much of each material the site needs. Change any figure at any time.
             </p>
-          ))}
-        </section>
-      )}
+            <button className="btn btn--sm" onClick={() => setAdding(true)}>
+              <Plus /> Add material
+            </button>
+          </div>
+        )}
+      </section>
 
       <section className="card">
         <div className="card__head">
@@ -207,6 +212,18 @@ export default function SiteMaterials() {
 
       {move && <MoveModal siteId={site.id} rows={rows} type={move.type} initialKey={move.key} onClose={() => setMove(null)} />}
       {adding && <AddMaterial siteId={site.id} systems={site.systems} onClose={() => setAdding(false)} />}
+      {remove && (
+        <Confirm
+          title={`Remove ${remove.name}?`}
+          body="The material and its requests, deliveries and usage records are removed from this site."
+          action="Remove material"
+          onClose={() => setRemove(null)}
+          onConfirm={() => {
+            deleteCustom(remove.key);
+            toast('Material removed');
+          }}
+        />
+      )}
       {request && (
         <RequestModal
           site={site}
@@ -226,26 +243,19 @@ export default function SiteMaterials() {
   );
 }
 
-function MatRow({ r, onOverride, onMove, onRequest, onDelete }: { r: MaterialRow; onOverride: (n: number | null) => void; onMove: (t: MaterialMove) => void; onRequest: () => void; onDelete?: () => void }) {
+function MatRow({ r, onNeeded, onMove, onRequest, onDelete }: { r: MaterialRow; onNeeded: (n: number) => void; onMove: (t: MaterialMove) => void; onRequest: () => void; onDelete: () => void }) {
   return (
     <tr className={`mat-row mat-row--${r.state}`}>
       <td>
         <div className="mat-name">
-          {r.bulb && <span className="bulb" style={{ ['--bulb' as string]: r.bulb }} title="Bulb colour = temperature rating" />}
           <span>
             <b>{r.name}</b>
-            <small>{r.basis}</small>
           </span>
         </div>
       </td>
       <td className="r nowrap">
         <span className="req">
-          <NumField className="input input--sm input--num w-90" value={r.estimate} onChange={(n) => onOverride(n)} aria-label={`Quantity of ${r.name} needed`} />
-          {r.overridden && (
-            <button className="icon-btn icon-btn--sm" title="Back to the worked-out figure" aria-label="Reset to the worked-out figure" onClick={() => onOverride(null)}>
-              <RotateCcw />
-            </button>
-          )}
+          <NumField className="input input--sm input--num w-90" value={r.needed} onChange={onNeeded} aria-label={`Quantity of ${r.name} needed`} />
         </span>
         <small className="muted unit">{r.unit}</small>
       </td>
@@ -271,11 +281,9 @@ function MatRow({ r, onOverride, onMove, onRequest, onDelete }: { r: MaterialRow
         <button className="icon-btn icon-btn--sm" title="Record usage" aria-label={`Record usage of ${r.name}`} onClick={() => onMove('out')}>
           <ArrowUpFromLine />
         </button>
-        {onDelete && (
-          <button className="icon-btn icon-btn--sm" title="Remove material" aria-label={`Remove ${r.name}`} onClick={onDelete}>
-            <Trash2 />
-          </button>
-        )}
+        <button className="icon-btn icon-btn--sm" title="Remove material" aria-label={`Remove ${r.name}`} onClick={onDelete}>
+          <Trash2 />
+        </button>
       </td>
     </tr>
   );
@@ -352,7 +360,7 @@ function RequestModal({ site, rows, initialKey, onClose, onSaved }: { site: Site
                   <span>
                     <b>{r.name}</b>
                     <small className="muted">
-                      Needed {num(r.estimate)} · on site {num(r.onSite)}
+                      Needed {num(r.needed)} · on site {num(r.onSite)}
                       {r.requested ? ` · ${num(r.requested)} already requested` : ''}
                     </small>
                   </span>
@@ -433,9 +441,9 @@ function MoveModal({ siteId, rows, type: initialType, initialKey, onClose }: { s
         <label className="field">
           <span>Material</span>
           <select className="select" value={key} onChange={(e) => setKey(e.target.value)}>
-            {[...new Set(rows.map((x) => x.group))].map((g) => (
+            {[...new Set(rows.map((x) => materialGroup(x.system)))].map((g) => (
               <optgroup key={g} label={g}>
-                {rows.filter((x) => x.group === g).map((x) => (
+                {rows.filter((x) => materialGroup(x.system) === g).map((x) => (
                   <option key={x.key} value={x.key}>{x.name}</option>
                 ))}
               </optgroup>
@@ -472,12 +480,16 @@ function MoveModal({ siteId, rows, type: initialType, initialKey, onClose }: { s
 
 function AddMaterial({ siteId, systems, onClose }: { siteId: string; systems: System[]; onClose: () => void }) {
   const add = useStore((s) => s.addCustomMaterial);
-  const [f, setF] = useState({ system: systems[0], name: '', unit: 'nos', qty: 0 });
-  const save = () => {
+  const [f, setF] = useState<{ system: System | null; name: string; unit: string; qty: number }>({ system: systems[0] ?? null, name: '', unit: 'nos', qty: 0 });
+  const [added, setAdded] = useState(0);
+  const save = (another: boolean) => {
     if (!f.name.trim()) return toast('Name the material first');
-    add({ ...f, siteId });
-    toast('Material added');
-    onClose();
+    add({ ...f, name: f.name.trim(), siteId });
+    toast(`${f.name.trim()} added`);
+    if (another) {
+      setF({ ...f, name: '', qty: 0 });
+      setAdded(added + 1);
+    } else onClose();
   };
   return (
     <Modal
@@ -486,20 +498,23 @@ function AddMaterial({ siteId, systems, onClose }: { siteId: string; systems: Sy
       onClose={onClose}
       footer={
         <>
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn--primary" onClick={save}>Add material</button>
+          {added > 0 && <span className="muted small grow">{added} added</span>}
+          <button className="btn" onClick={onClose}>{added ? 'Done' : 'Cancel'}</button>
+          <button className="btn" onClick={() => save(true)}>Add & next</button>
+          <button className="btn btn--primary" onClick={() => save(false)}>Add material</button>
         </>
       }
     >
       <div className="form-grid form-grid--2">
         <label className="field span-all">
           <span>Material</span>
-          <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Fire-rated sealant 310 ml" />
+          <input className="input" value={f.name} autoFocus onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Addressable smoke detector with base" />
         </label>
         <label className="field">
           <span>System</span>
-          <select className="select" value={f.system} onChange={(e) => setF({ ...f, system: e.target.value as System })}>
+          <select className="select" value={f.system ?? ''} onChange={(e) => setF({ ...f, system: (e.target.value || null) as System | null })}>
             {systems.map((s) => <option key={s} value={s}>{s === 'FA' ? 'Fire alarm' : 'Fire fighting'}</option>)}
+            <option value="">General</option>
           </select>
         </label>
         <label className="field">
@@ -507,7 +522,7 @@ function AddMaterial({ siteId, systems, onClose }: { siteId: string; systems: Sy
           <input className="input" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} />
         </label>
         <label className="field span-all">
-          <span>Required quantity</span>
+          <span>Quantity needed</span>
           <NumField value={f.qty} onChange={(n) => setF({ ...f, qty: n })} />
         </label>
       </div>
