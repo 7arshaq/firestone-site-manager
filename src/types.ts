@@ -154,7 +154,8 @@ export interface DailyLog {
   inspections: string;
 }
 
-export type MaterialMove = 'in' | 'out' | 'return';
+/** in = delivered to site, out = used / issued, return = sent back to store, request = asked for, not yet delivered */
+export type MaterialMove = 'in' | 'out' | 'return' | 'request';
 
 export interface MaterialTxn {
   id: string;
@@ -229,4 +230,28 @@ export interface MaterialLine {
   bulb?: string;
   custom?: boolean;
   overridden?: boolean;
+}
+
+/** A drawing file kept with a site (PDF or image); the bytes live in IndexedDB */
+export interface DrawingMeta {
+  id: string;
+  siteId: string;
+  name: string;
+  kind: 'pdf' | 'image';
+  size: number;
+  pages: number;
+  addedAt: string;
+  /** 'markup' = a highlighted progress drawing */
+  tag?: 'markup';
+}
+
+/** A dated change to a stage's recorded quantity, e.g. from reading highlighted drawings */
+export interface ProgressAdjustment {
+  id: string;
+  siteId: string;
+  date: string;
+  workItemId: string;
+  /** added to the stage's done quantity on this date (negative corrects an over-count) */
+  qty: number;
+  note: string;
 }

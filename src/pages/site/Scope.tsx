@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSiteCtx } from './SiteLayout';
+import MarkupReader from '../../components/MarkupReader';
 import { useStore } from '../../store/store';
 import { siteProgress } from '../../lib/progress';
 import { Modal, NumField, SysTag, toast } from '../../components/ui';
 import type { System } from '../../types';
-import { num } from '../../lib/util';
+import { num, qtyNum } from '../../lib/util';
 
 const FA_FIELDS: [keyof import('../../types').FAScope, string][] = [
   ['panels', 'Fire alarm panels'], ['loops', 'Loops'], ['smoke', 'Smoke detectors'], ['heat', 'Heat detectors'],
@@ -22,20 +23,24 @@ const FF_FIELDS: [keyof import('../../types').FFScope, string, string][] = [
 export default function Scope() {
   const s = useSiteCtx();
   const { site } = s;
-  const d = useStore(useShallow((st) => ({ workItems: st.workItems, tasks: st.tasks })));
+  const d = useStore(useShallow((st) => ({ workItems: st.workItems, tasks: st.tasks, adjustments: st.adjustments })));
   const updateWorkItem = useStore((st) => st.updateWorkItem);
   const deleteWorkItem = useStore((st) => st.deleteWorkItem);
   const updateSite = useStore((st) => st.updateSite);
-  const prog = useMemo(() => siteProgress(site, d.workItems, d.tasks), [site, d]);
+  const prog = useMemo(() => siteProgress(site, d.workItems, d.tasks, undefined, d.adjustments), [site, d]);
+  // recorded since tracking began: daily task quantities plus updates from highlighted drawings
   const fromTasks = useMemo(() => {
     const m = new Map<string, number>();
     d.tasks.forEach((t) => t.siteId === site.id && t.workItemId && m.set(t.workItemId, (m.get(t.workItemId) ?? 0) + t.doneQty));
+    d.adjustments.forEach((a) => a.siteId === site.id && m.set(a.workItemId, (m.get(a.workItemId) ?? 0) + a.qty));
     return m;
-  }, [d.tasks, site.id]);
+  }, [d.tasks, d.adjustments, site.id]);
   const [adding, setAdding] = useState(false);
 
   return (
     <div className="stack stack--lg">
+      <MarkupReader site={site} items={prog.items} />
+
       <section className="card">
         <div className="card__head">
           <div>
@@ -126,7 +131,7 @@ export default function Scope() {
                 <th>Stage</th>
                 <th className="r">Scope</th>
                 <th className="r" title="Progress achieved before you started tracking it here">Done before</th>
-                <th className="r">From daily tasks</th>
+                <th className="r" title="Daily task quantities plus updates from highlighted drawings">Recorded</th>
                 <th className="r">Done</th>
                 <th className="r">%</th>
                 <th className="r">Weight</th>
@@ -170,8 +175,8 @@ export default function Scope() {
                         <td className="r">
                           <NumField className="input input--sm input--num w-90" value={p.item.baseDone} onChange={(n) => updateWorkItem(p.item.id, { baseDone: Math.min(n, p.item.qty) })} aria-label="Done before tracking" />
                         </td>
-                        <td className="r">{num(fromTasks.get(p.item.id) ?? 0)}</td>
-                        <td className="r">{num(p.done)}</td>
+                        <td className="r">{qtyNum(fromTasks.get(p.item.id) ?? 0)}</td>
+                        <td className="r">{qtyNum(p.done)}</td>
                         <td className="r">
                           <b>{Math.round(p.frac * 100)}%</b>
                         </td>

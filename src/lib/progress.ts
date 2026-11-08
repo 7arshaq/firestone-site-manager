@@ -1,4 +1,4 @@
-import type { MaterialLine, MaterialTxn, Site, System, Task, WorkItem } from '../types';
+import type { MaterialLine, MaterialTxn, ProgressAdjustment, Site, System, Task, WorkItem } from '../types';
 import type { Data } from '../store/store';
 import { estimateMaterials } from './estimate';
 import { STAGE_ORDER } from './scope';
@@ -17,24 +17,28 @@ export interface SiteProgress {
   items: ItemProgress[];
 }
 
-/** Sum of task quantities per work item, optionally up to and including a date */
-function doneByItem(tasks: Task[], siteId: string, upTo?: string) {
+/** Task quantities plus dated adjustments per work item, optionally up to and including a date */
+function doneByItem(tasks: Task[], adjustments: ProgressAdjustment[], siteId: string, upTo?: string) {
   const map = new Map<string, number>();
   for (const t of tasks) {
     if (t.siteId !== siteId || !t.workItemId || t.doneQty <= 0) continue;
     if (upTo && t.date > upTo) continue;
     map.set(t.workItemId, (map.get(t.workItemId) ?? 0) + t.doneQty);
   }
+  for (const a of adjustments) {
+    if (a.siteId !== siteId || (upTo && a.date > upTo)) continue;
+    map.set(a.workItemId, (map.get(a.workItemId) ?? 0) + a.qty);
+  }
   return map;
 }
 
-export function siteProgress(site: Site, workItems: WorkItem[], tasks: Task[], upTo?: string): SiteProgress {
+export function siteProgress(site: Site, workItems: WorkItem[], tasks: Task[], upTo?: string, adjustments: ProgressAdjustment[] = []): SiteProgress {
   const items = workItems
     .filter((w) => w.siteId === site.id)
     .sort((a, b) => (STAGE_ORDER.get(a.key) ?? 99) - (STAGE_ORDER.get(b.key) ?? 99));
-  const done = doneByItem(tasks, site.id, upTo);
+  const done = doneByItem(tasks, adjustments, site.id, upTo);
   const out: ItemProgress[] = items.map((item) => {
-    const d = Math.min(item.qty, item.baseDone + (done.get(item.id) ?? 0));
+    const d = Math.max(0, Math.min(item.qty, item.baseDone + (done.get(item.id) ?? 0)));
     return { item, done: d, frac: item.qty > 0 ? clamp01(d / item.qty) : 0 };
   });
   const sys = (s: System) => {
@@ -53,9 +57,11 @@ export function siteProgress(site: Site, workItems: WorkItem[], tasks: Task[], u
   return { FA, FF, overall, items: out };
 }
 
-export function progressDelta(site: Site, data: Pick<Data, 'workItems' | 'tasks'>, date = today()) {
-  const now = siteProgress(site, data.workItems, data.tasks, date);
-  const before = siteProgress(site, data.workItems, data.tasks, addDays(date, -1));
+type ProgressData = Pick<Data, 'workItems' | 'tasks'> & { adjustments?: ProgressAdjustment[] };
+
+export function progressDelta(site: Site, data: ProgressData, date = today()) {
+  const now = siteProgress(site, data.workItems, data.tasks, date, data.adjustments);
+  const before = siteProgress(site, data.workItems, data.tasks, addDays(date, -1), data.adjustments);
   return {
     now,
     before,
@@ -66,11 +72,11 @@ export function progressDelta(site: Site, data: Pick<Data, 'workItems' | 'tasks'
 }
 
 /** Overall progress for each of the last `days` days, oldest first */
-export function progressHistory(site: Site, data: Pick<Data, 'workItems' | 'tasks'>, days = 14, end = today()) {
+export function progressHistory(site: Site, data: ProgressData, days = 14, end = today()) {
   const out: { date: string; value: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = addDays(end, -i);
-    out.push({ date: d, value: siteProgress(site, data.workItems, data.tasks, d).overall });
+    out.push({ date: d, value: siteProgress(site, data.workItems, data.tasks, d, data.adjustments).overall });
   }
   return out;
 }
@@ -85,6 +91,10 @@ export interface MaterialRow extends MaterialLine {
   used: number;
   onSite: number;
   toDeliver: number;
+  /** asked for but not delivered yet (requests minus deliveries since) */
+  requested: number;
+  /** still to ask for: needed − delivered − already requested */
+  toRequest: number;
   state: StockState;
 }
 
@@ -111,6 +121,13 @@ export function materialRows(site: Site, data: Pick<Data, 'overrides' | 'customM
     const delivered = inQ - ret;
     const onSite = inQ - outQ - ret;
     const toDeliver = Math.max(0, est - delivered);
+    // a request stays open until deliveries made after it cover it; deliveries before it don't count
+    let requested = 0;
+    for (const t of [...mine].sort((a, b) => a.date.localeCompare(b.date))) {
+      if (t.type === 'request') requested += t.qty;
+      else if (t.type === 'in') requested = Math.max(0, requested - t.qty);
+    }
+    const toRequest = Math.max(0, toDeliver - requested);
     const stillNeeded = Math.max(0, est - outQ);
     // Only materials already being installed can run short; untouched ones are simply "not delivered yet".
     const inUse = outQ > 0;
@@ -118,7 +135,7 @@ export function materialRows(site: Site, data: Pick<Data, 'overrides' | 'customM
     if (delivered <= 0 && est > 0) state = 'none';
     else if (inUse && stillNeeded > 0 && onSite <= 0) state = 'short';
     else if (inUse && stillNeeded > 0 && onSite < Math.max(1, est * 0.06) && onSite < stillNeeded) state = 'low';
-    return { ...l, estimate: est, delivered, used: outQ, onSite, toDeliver, state };
+    return { ...l, estimate: est, delivered, used: outQ, onSite, toDeliver, requested, toRequest, state };
   });
   return { rows, advisories: est.advisories };
 }

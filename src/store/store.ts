@@ -2,12 +2,14 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { createStore, get, set, del } from 'idb-keyval';
 import type {
-  Allocation, Attendance, CustomMaterial, DailyLog, Expense, MaterialTxn, Person, PhotoMeta,
-  Settings, Site, Task, WorkItem,
+  Allocation, Attendance, CustomMaterial, DailyLog, DrawingMeta, Expense, MaterialTxn, Person, PhotoMeta,
+  ProgressAdjustment, Settings, Site, Task, WorkItem,
 } from '../types';
 import { syncWorkItems } from '../lib/scope';
 import { uid } from '../lib/util';
 import { deleteManyPhotoBlobs, deletePhotoBlobs } from './photos';
+import { deleteDrawingBlob, deleteManyDrawingBlobs } from './drawings';
+import { withoutSample } from '../data/sample-keys';
 
 const db = createStore('riser-db', 'state');
 const idbStorage: StateStorage = {
@@ -28,6 +30,8 @@ export interface Data {
   overrides: Record<string, Record<string, number>>;
   expenses: Expense[];
   photos: PhotoMeta[];
+  drawings: DrawingMeta[];
+  adjustments: ProgressAdjustment[];
   settings: Settings;
   initialised: boolean;
   sampleLoaded: boolean;
@@ -45,6 +49,8 @@ export const emptyData = (): Data => ({
   overrides: {},
   expenses: [],
   photos: [],
+  drawings: [],
+  adjustments: [],
   settings: { companyName: 'Firestone', engineerName: 'Site Engineer', engineerPhone: '', engineerPin: '' },
   initialised: false,
   sampleLoaded: false,
@@ -88,6 +94,10 @@ interface Actions {
   updatePhoto: (id: string, patch: Partial<PhotoMeta>) => void;
   deletePhoto: (id: string) => Promise<void>;
 
+  addDrawings: (list: DrawingMeta[]) => void;
+  addAdjustments: (list: ProgressAdjustment[]) => void;
+  deleteDrawing: (id: string) => Promise<void>;
+
   updateSettings: (patch: Partial<Settings>) => void;
 }
 
@@ -104,6 +114,7 @@ export const useStore = create<Store>()(
       clearAll: async () => {
         const ids = getState().photos.map((p) => p.id);
         await deleteManyPhotoBlobs(ids);
+        await deleteManyDrawingBlobs(getState().drawings.map((d) => d.id));
         const settings = getState().settings;
         setState({ ...emptyData(), settings, initialised: true, sampleLoaded: false });
       },
@@ -126,6 +137,7 @@ export const useStore = create<Store>()(
       deleteSite: async (id) => {
         const photoIds = getState().photos.filter((p) => p.siteId === id).map((p) => p.id);
         await deleteManyPhotoBlobs(photoIds);
+        await deleteManyDrawingBlobs(getState().drawings.filter((d) => d.siteId === id).map((d) => d.id));
         setState((s) => {
           const overrides = { ...s.overrides };
           delete overrides[id];
@@ -139,6 +151,8 @@ export const useStore = create<Store>()(
             customMaterials: s.customMaterials.filter((x) => x.siteId !== id),
             expenses: s.expenses.filter((x) => x.siteId !== id),
             photos: s.photos.filter((x) => x.siteId !== id),
+            drawings: s.drawings.filter((x) => x.siteId !== id),
+            adjustments: s.adjustments.filter((x) => x.siteId !== id),
             overrides,
           };
         });
@@ -150,6 +164,7 @@ export const useStore = create<Store>()(
         setState((s) => ({ workItems: [...s.workItems, { ...item, id: uid(), key: `custom.${uid()}` }] })),
       deleteWorkItem: (id) =>
         setState((s) => ({
+          adjustments: s.adjustments.filter((a) => a.workItemId !== id),
           workItems: s.workItems.filter((w) => w.id !== id),
           tasks: s.tasks.map((t) => (t.workItemId === id ? { ...t, workItemId: null } : t)),
         })),
@@ -268,15 +283,34 @@ export const useStore = create<Store>()(
         setState((s) => ({ photos: s.photos.filter((p) => p.id !== id) }));
       },
 
+      addDrawings: (list) => setState((s) => ({ drawings: [...s.drawings, ...list] })),
+      addAdjustments: (list) => setState((s) => ({ adjustments: [...s.adjustments, ...list] })),
+      deleteDrawing: async (id) => {
+        await deleteDrawingBlob(id);
+        setState((s) => ({ drawings: s.drawings.filter((d) => d.id !== id) }));
+      },
+
       updateSettings: (patch) => setState((s) => ({ settings: { ...s.settings, ...patch } })),
     }),
     {
       name: 'riser-data',
-      version: 2,
+      version: 4,
       migrate: (persisted, version) => {
-        const s = persisted as Data;
+        let s = persisted as Data;
+        if (!s) return s as unknown as Store;
         // v2: company branding — replace the old placeholder company name
-        if (version < 2 && s?.settings?.companyName === 'Fire Safety Contracting LLC') s.settings.companyName = 'Firestone';
+        if (version < 2 && s.settings?.companyName === 'Fire Safety Contracting LLC') s.settings.companyName = 'Firestone';
+        // v3: drawings, and the app no longer ships with sample sites — take them out, keep everything the user added
+        if (version < 3) {
+          s = { ...s, drawings: s.drawings ?? [] };
+          if (s.sampleLoaded) {
+            const { data, removedPhotoIds } = withoutSample(s);
+            s = data;
+            if (removedPhotoIds.length) void deleteManyPhotoBlobs(removedPhotoIds);
+          }
+        }
+        // v4: dated progress adjustments (highlighted-drawing updates)
+        if (version < 4) s = { ...s, drawings: s.drawings ?? [], adjustments: s.adjustments ?? [] };
         return s as unknown as Store;
       },
       storage: createJSONStorage(() => idbStorage),

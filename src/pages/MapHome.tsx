@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowUpRight, Package, Plus, Search, Users } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Package, Plus, Search, Share2, Users } from 'lucide-react';
+import AllSitesShare from '../components/AllSitesShare';
 import UaeMap, { type MapSite } from '../components/UaeMap';
 import { useSummaries, type SiteSummary } from '../store/hooks';
 import { useStore } from '../store/store';
@@ -19,6 +20,7 @@ export default function MapHome() {
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   const counts = useMemo(() => {
     const c = { current: 0, snagging: 0, 'on-hold': 0, completed: 0, all: summaries.length };
@@ -85,9 +87,16 @@ export default function MapHome() {
         <header className="home__head">
           <div className="row row--between">
             <span className="label">{fmtDay(t)} {t.slice(0, 4)}</span>
-            <Link to="/sites/new" className="btn btn--primary btn--sm">
-              <Plus /> New site
-            </Link>
+            <span className="row" style={{ gap: 6 }}>
+              {summaries.length > 0 && (
+                <button className="btn btn--sm" onClick={() => setSharing(true)} title="WhatsApp and PDF summaries covering every site">
+                  <Share2 /> Share
+                </button>
+              )}
+              <Link to="/sites/new" className="btn btn--primary btn--sm">
+                <Plus /> New site
+              </Link>
+            </span>
           </div>
           <h1 className="h1">Your sites</h1>
           <p className="home__today">
@@ -140,6 +149,7 @@ export default function MapHome() {
           )}
         </div>
       </aside>
+      {sharing && <AllSitesShare onClose={() => setSharing(false)} />}
     </div>
   );
 }
@@ -157,7 +167,7 @@ function SiteCard({ s, selected, hover, onHover, onPick }: { s: SiteSummary; sel
       <div className="site-card__main">
         <div className="site-card__eyebrow">
           <span className="label truncate">
-            {site.code} · {site.area}
+            {site.code} · {site.area || site.emirate}
           </span>
           <span className="row" style={{ gap: 4 }}>
             {site.systems.map((x) => (

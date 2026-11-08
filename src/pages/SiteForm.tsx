@@ -1,13 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Link2, MapPin, Trash2 } from 'lucide-react';
 import UaeMap, { gridRef } from '../components/UaeMap';
-import { Confirm, NumField, toast } from '../components/ui';
+import DrawingAssistant from '../components/DrawingAssistant';
+import SatelliteView from '../components/SatelliteView';
+import { saveDrawingBlob } from '../store/drawings';
+import { reverseGeocode, type Place } from '../lib/geocode';
+import type { PickedDrawing } from '../lib/drawing-files';
+import { Confirm, NumField, Seg, toast } from '../components/ui';
 import { useStore } from '../store/store';
 import { estimateMaterials } from '../lib/estimate';
 import { TEMPLATES } from '../lib/scope';
-import type { BuildingType, Emirate, FAScope, FFScope, Site, SiteStatus, System } from '../types';
-import { addDays, parseLatLng, today } from '../lib/util';
+import type { BuildingType, DrawingMeta, Emirate, FAScope, FFScope, Site, SiteStatus, System } from '../types';
+import { addDays, parseLatLng, today, uid } from '../lib/util';
 
 const EMIRATES: Emirate[] = ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'];
 const PREFIX: Record<Emirate, string> = {
@@ -47,6 +52,7 @@ export default function SiteForm() {
   const addSite = useStore((s) => s.addSite);
   const updateSite = useStore((s) => s.updateSite);
   const deleteSite = useStore((s) => s.deleteSite);
+  const addDrawings = useStore((s) => s.addDrawings);
   const nextCode = (e: Emirate) => {
     const nums = sites.filter((s) => s.code.startsWith(PREFIX[e])).map((s) => parseInt(s.code.split('-')[1] ?? '0', 10) || 0);
     return `${PREFIX[e]}-${String((nums.length ? Math.max(...nums) : 100) + 1).padStart(3, '0')}`;
@@ -59,6 +65,25 @@ export default function SiteForm() {
   const [link, setLink] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [codeTouched, setCodeTouched] = useState(!!existing);
+  const [picked, setPicked] = useState<PickedDrawing[]>([]);
+  // a new site's pin only counts once the engineer has placed it
+  const [pinSet, setPinSet] = useState(!!existing);
+  const [view, setView] = useState<'map' | 'satellite'>('map');
+  const [place, setPlace] = useState<Place | null>(null);
+  const placePin = (p: { lat: number; lng: number }) => {
+    setF((x) => ({ ...x, lat: p.lat, lng: p.lng }));
+    setPinSet(true);
+  };
+
+  useEffect(() => {
+    if (!pinSet) return;
+    let alive = true;
+    const t = setTimeout(() => reverseGeocode(f.lat, f.lng).then((p) => alive && setPlace(p)), 600);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [pinSet, f.lat, f.lng]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setF((x) => ({ ...x, [k]: v }));
   const setC = <K extends keyof Draft['conditions']>(k: K, v: Draft['conditions'][K]) => setF((x) => ({ ...x, conditions: { ...x.conditions, [k]: v } }));
@@ -71,15 +96,28 @@ export default function SiteForm() {
     return { materials: est.lines.length, advisories: est.advisories, stages };
   }, [f]);
 
-  const save = () => {
+  const keepDrawings = async (siteId: string) => {
+    const list = picked.filter((p) => !p.error && (p.kind === 'pdf' || p.kind === 'image'));
+    const metas: DrawingMeta[] = [];
+    for (const p of list) {
+      const meta: DrawingMeta = { id: uid(), siteId, name: p.file.name, kind: p.kind as 'pdf' | 'image', size: p.file.size, pages: p.pages, addedAt: new Date().toISOString() };
+      await saveDrawingBlob(meta.id, p.file);
+      metas.push(meta);
+    }
+    if (metas.length) addDrawings(metas);
+  };
+
+  const save = async () => {
     if (!f.name.trim()) return toast('Give the site a name');
     if (!f.systems.length) return toast('Choose fire alarm, fire fighting or both');
     if (existing) {
       updateSite(existing.id, f);
+      await keepDrawings(existing.id);
       toast('Site saved');
       nav(`/sites/${existing.id}`);
     } else {
       const newId = addSite(f);
+      await keepDrawings(newId);
       toast('Site added');
       nav(`/sites/${newId}`);
     }
@@ -89,7 +127,7 @@ export default function SiteForm() {
     setLink(text);
     const p = parseLatLng(text);
     if (p) {
-      setF((x) => ({ ...x, lat: p.lat, lng: p.lng }));
+      placePin(p);
       toast('Location set from link');
     }
   };
@@ -118,6 +156,16 @@ export default function SiteForm() {
 
       <div className="site-form">
         <div className="stack stack--lg">
+          <DrawingAssistant
+            draft={f}
+            setDraft={setF}
+            picked={picked}
+            setPicked={setPicked}
+            pin={pinSet ? { lat: f.lat, lng: f.lng } : null}
+            onPin={placePin}
+            onFilled={(keys) => keys.includes('code') && setCodeTouched(true)}
+          />
+
           <section className="card">
             <div className="card__head"><h2 className="h2">Project</h2></div>
             <div className="card__body form-grid form-grid--2">
@@ -273,20 +321,41 @@ export default function SiteForm() {
             <div className="card__head">
               <div>
                 <h2 className="h2">Location</h2>
-                <p className="muted small">Tap the map, or paste a Google Maps link.</p>
+                <p className="muted small">{pinSet ? 'Check the pin on the satellite view.' : 'Tap the map, or paste a Google Maps link.'}</p>
               </div>
               <span className="site-head__ref">{gridRef(f.lat, f.lng)}</span>
             </div>
-            <div className="site-form__map">
-              <UaeMap
-                sites={[]}
-                compact
-                intro={false}
-                pick={{ lat: f.lat, lng: f.lng }}
-                onPick={(p) => setF((x) => ({ ...x, ...p }))}
-                focus={null}
+            <div className="site-form__view">
+              <Seg
+                label="Map or satellite"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'map', label: 'Map' },
+                  { value: 'satellite', label: 'Satellite' },
+                ]}
               />
             </div>
+            {view === 'map' ? (
+              <div className="site-form__map">
+                <UaeMap sites={[]} compact intro={false} pick={pinSet ? { lat: f.lat, lng: f.lng } : null} onPick={placePin} focus={null} />
+              </div>
+            ) : (
+              <div className="site-form__sat">
+                <SatelliteView lat={f.lat} lng={f.lng} />
+              </div>
+            )}
+            {pinSet && place && (
+              <div className="card__body pin-place">
+                <MapPin aria-hidden />
+                <span className="grow small">{place.label}</span>
+                {!f.area && place.area && (
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => set('area', place.area)}>
+                    Use “{place.area}”
+                  </button>
+                )}
+              </div>
+            )}
             <div className="card__body stack">
               <label className="field">
                 <span><Link2 size={13} style={{ display: 'inline', verticalAlign: -2 }} /> Google Maps link or “lat, lng”</span>
@@ -295,11 +364,11 @@ export default function SiteForm() {
               <div className="form-grid form-grid--2" style={{ gap: 12 }}>
                 <label className="field">
                   <span>Latitude</span>
-                  <NumField step={0.0001} min={-90} value={f.lat} onChange={(n) => set('lat', n)} />
+                  <NumField step={0.0001} min={-90} value={f.lat} onChange={(n) => placePin({ lat: n, lng: f.lng })} />
                 </label>
                 <label className="field">
                   <span>Longitude</span>
-                  <NumField step={0.0001} min={-180} value={f.lng} onChange={(n) => set('lng', n)} />
+                  <NumField step={0.0001} min={-180} value={f.lng} onChange={(n) => placePin({ lat: f.lat, lng: n })} />
                 </label>
                 <label className="field">
                   <span>Emirate</span>
@@ -325,7 +394,7 @@ export default function SiteForm() {
                   onClick={() =>
                     navigator.geolocation.getCurrentPosition(
                       (p) => {
-                        setF((x) => ({ ...x, lat: Math.round(p.coords.latitude * 1e5) / 1e5, lng: Math.round(p.coords.longitude * 1e5) / 1e5 }));
+                        placePin({ lat: Math.round(p.coords.latitude * 1e5) / 1e5, lng: Math.round(p.coords.longitude * 1e5) / 1e5 });
                         toast('Location set to where you are');
                       },
                       () => toast('Location permission was not given'),

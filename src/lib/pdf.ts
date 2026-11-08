@@ -4,7 +4,7 @@ import type { ExpenseCategory, Site } from '../types';
 import type { Data } from '../store/store';
 import { materialRows, progressDelta, siteProgress } from './progress';
 import { crewBreakdown, crewOn, ROLE_LABEL } from './notes';
-import { addDays, aed, downloadBlob, fmtDate, fmtDay, fmtSheetDate, num } from './util';
+import { addDays, aed, downloadBlob, fmtDate, fmtDay, fmtSheetDate, num, placeName } from './util';
 import { CATEGORY_LABEL } from './labels';
 import { blobToDataURL, getPhotoBlob } from '../store/photos';
 
@@ -240,7 +240,7 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
   const reportNo = new Set(n).size;
   const doc = await Doc.create(data, 'Daily Progress Report', `${fmtDay(date)} ${date.slice(0, 4)}  ·  No. ${String(reportNo).padStart(3, '0')}`);
   doc.titleBlock([
-    ['Project', site.name], ['Code', site.code], ['Location', `${site.area}, ${site.emirate}`], ['Status', { active: 'Active', snagging: 'Snagging', 'on-hold': 'On hold', completed: 'Completed' }[site.status]],
+    ['Project', site.name], ['Code', site.code], ['Location', placeName(site)], ['Status', { active: 'Active', snagging: 'Snagging', 'on-hold': 'On hold', completed: 'Completed' }[site.status]],
     ['Client', site.client], ['Main contractor', site.contractor], ['Consultant', site.consultant], ['Date', fmtSheetDate(date)],
   ]);
 
@@ -300,7 +300,7 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
   }
 
   doc.section('Scope progress');
-  const prog = siteProgress(site, data.workItems, data.tasks, date);
+  const prog = siteProgress(site, data.workItems, data.tasks, date, data.adjustments);
   doc.table({
     head: [['System', 'Activity', 'Scope', 'Done', '%']],
     body: prog.items.map((p) => [p.item.system, p.item.label, `${num(p.item.qty)} ${p.item.unit}`, num(p.done), `${Math.round(p.frac * 100)}%`]),
@@ -314,7 +314,7 @@ export async function dailyReportPDF(site: Site, data: Data, date: string, inclu
     doc.section('Material movements');
     doc.table({
       head: [['Material', 'Movement', 'Qty', 'Ref']],
-      body: moves.map((t) => [names.get(t.key)?.name ?? t.key, t.type === 'in' ? 'Received' : t.type === 'out' ? 'Used / issued' : 'Returned', `${num(t.qty)} ${names.get(t.key)?.unit ?? ''}`, t.ref]),
+      body: moves.map((t) => [names.get(t.key)?.name ?? t.key, ({ in: 'Received', out: 'Used / issued', return: 'Returned', request: 'Requested' } as const)[t.type], `${num(t.qty)} ${names.get(t.key)?.unit ?? ''}`, t.ref]),
       columnStyles: { 2: { halign: 'right' } },
     });
   }
@@ -343,8 +343,8 @@ export async function summaryReportPDF(data: Data, date: string, days = 7) {
   doc.table({
     head: [['Code', 'Site', 'Status', 'FA', 'FF', 'Overall', `+ ${days} days`, 'Crew today']],
     body: sites.map((s) => {
-      const now = siteProgress(s, data.workItems, data.tasks, date);
-      const before = siteProgress(s, data.workItems, data.tasks, addDays(from, -1));
+      const now = siteProgress(s, data.workItems, data.tasks, date, data.adjustments);
+      const before = siteProgress(s, data.workItems, data.tasks, addDays(from, -1), data.adjustments);
       const gain = Math.round((now.overall - before.overall) * 1000) / 10;
       return [
         s.code, s.name, s.status.replace('-', ' '),
@@ -420,7 +420,7 @@ export async function expenseReportPDF(data: Data, from: string, to: string, sit
 export async function materialReportPDF(site: Site, data: Data, date: string) {
   const doc = await Doc.create(data, 'Material Status', `${site.code}  ·  ${fmtDate(date)}`);
   doc.titleBlock([
-    ['Project', site.name], ['Code', site.code], ['Location', `${site.area}, ${site.emirate}`], ['Date', fmtSheetDate(date)],
+    ['Project', site.name], ['Code', site.code], ['Location', placeName(site)], ['Date', fmtSheetDate(date)],
   ]);
   const { rows, advisories } = materialRows(site, data);
   if (advisories.length) {
@@ -431,9 +431,9 @@ export async function materialReportPDF(site: Site, data: Data, date: string) {
   for (const g of groups) {
     doc.section(g);
     doc.table({
-      head: [['Material', 'Unit', 'Required', 'Delivered', 'Used', 'On site', 'To deliver']],
-      body: rows.filter((r) => r.group === g).map((r) => [r.name, r.unit, num(r.estimate), num(r.delivered), num(r.used), num(r.onSite), num(r.toDeliver)]),
-      columnStyles: { 0: { cellWidth: 66 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' }, 6: { halign: 'right' } },
+      head: [['Material', 'Unit', 'Needed', 'Requested', 'Delivered', 'Used', 'On site', 'To deliver']],
+      body: rows.filter((r) => r.group === g).map((r) => [r.name, r.unit, num(r.estimate), r.requested ? num(r.requested) : '—', num(r.delivered), num(r.used), num(r.onSite), num(r.toDeliver)]),
+      columnStyles: { 0: { cellWidth: 60 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right', fontStyle: 'bold' }, 7: { halign: 'right' } },
     });
   }
   return doc.blob();

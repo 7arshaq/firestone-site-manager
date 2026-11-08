@@ -59,6 +59,12 @@ export function relDay(iso: string, ref = today()) {
 export const num = (n: number, digits = 0) =>
   n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
+/** Quantity: whole numbers stay whole; part of a small stage (e.g. 0.2 of a zone) keeps one decimal */
+export const qtyNum = (n: number) => num(n, Number.isInteger(n) || Math.abs(n) >= 100 ? 0 : 1);
+
+/** "Musaffah M-40, Abu Dhabi", or just the emirate when no area is set */
+export const placeName = (s: { area: string; emirate: string }) => [s.area.trim(), s.emirate].filter(Boolean).join(', ');
+
 export const aed = (n: number) => `AED ${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 export const pct = (n: number | null) => (n === null ? '—' : `${Math.round(n * 100)}%`);
@@ -117,3 +123,6 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+/** 820 KB · 4.3 MB */
+export const fileSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);

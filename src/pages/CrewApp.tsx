@@ -80,7 +80,7 @@ function WhoAreYou({ onPick }: { onPick: (p: Person) => void }) {
           ))}
         </div>
       ) : (
-        <Empty title="No one has a crew PIN yet">The engineer can set PINs on the Team page (edit a person → Crew mode PIN).</Empty>
+        <Empty title="No one has a crew PIN yet">The engineer can set PINs in any site’s Team tab (edit a person → Crew mode PIN).</Empty>
       )}
     </main>
   );

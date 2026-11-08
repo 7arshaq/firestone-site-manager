@@ -167,10 +167,10 @@ export function TaskModal({
   crewIds: string[];
   onClose: () => void;
 }) {
-  const d = useStore(useShallow((s) => ({ workItems: s.workItems, tasks: s.tasks, people: s.people })));
+  const d = useStore(useShallow((s) => ({ workItems: s.workItems, tasks: s.tasks, people: s.people, adjustments: s.adjustments })));
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
-  const prog = useMemo(() => siteProgress(site, d.workItems, d.tasks), [site, d.workItems, d.tasks]);
+  const prog = useMemo(() => siteProgress(site, d.workItems, d.tasks, undefined, d.adjustments), [site, d.workItems, d.tasks, d.adjustments]);
   const [f, setF] = useState<Omit<Task, 'id' | 'updatedAt'>>(
     task ?? {
       siteId: site.id, date, workItemId: null, title: '', location: '', assignees: [], plannedQty: 0, doneQty: 0,

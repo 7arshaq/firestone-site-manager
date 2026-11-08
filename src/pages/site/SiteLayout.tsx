@@ -1,12 +1,13 @@
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom';
-import { ArrowLeft, Camera, ClipboardList, FileText, Gauge, Layers, Package, Pencil, Receipt } from 'lucide-react';
+import { ArrowLeft, Camera, ClipboardList, FileText, Gauge, Layers, Package, Pencil, Receipt, Users } from 'lucide-react';
 import { useSummaries, type SiteSummary } from '../../store/hooks';
 import { Bar, Delta, Empty, StatusDot, SysTag } from '../../components/ui';
-import { daysBetween, fmtSheetDate, today } from '../../lib/util';
+import { daysBetween, fmtSheetDate, placeName, today } from '../../lib/util';
 
 const TABS = [
   { to: '', label: 'Overview', icon: Gauge, end: true },
-  { to: 'daily', label: 'Daily', icon: ClipboardList },
+  { to: 'daily', label: 'Today', icon: ClipboardList },
+  { to: 'team', label: 'Team', icon: Users },
   { to: 'scope', label: 'Scope & progress', icon: Layers },
   { to: 'materials', label: 'Materials', icon: Package },
   { to: 'expenses', label: 'Expenses', icon: Receipt },
@@ -47,7 +48,7 @@ export default function SiteLayout() {
           <div className="site-head__id">
             <span className="site-head__ref" title="Grid reference on the map sheet">{s.ref}</span>
             <span className="label">
-              {site.code} · {site.area}, {site.emirate}
+              {site.code} · {placeName(site)}
             </span>
             {site.systems.map((x) => (
               <SysTag key={x} s={x} />
@@ -126,8 +127,9 @@ export default function SiteLayout() {
           <NavLink key={label} to={to} end={end}>
             <Icon aria-hidden />
             {label}
-            {label === 'Daily' && s.blocked > 0 && <span className="pill pill--flame">{s.blocked}</span>}
+            {label === 'Today' && s.blocked > 0 && <span className="pill pill--flame">{s.blocked}</span>}
             {label === 'Materials' && s.alerts > 0 && <span className="pill pill--amber">{s.alerts}</span>}
+            {label === 'Team' && s.crew > 0 && <span className="pill">{s.crew}</span>}
           </NavLink>
         ))}
       </nav>

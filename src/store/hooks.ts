@@ -26,6 +26,7 @@ export function useSummaries(date = today()): SiteSummary[] {
       sites: s.sites,
       workItems: s.workItems,
       tasks: s.tasks,
+      adjustments: s.adjustments,
       allocations: s.allocations,
       people: s.people,
       txns: s.txns,

@@ -929,7 +929,7 @@ p {
 
 @media (max-width: 900px) {
   .toasts {
-    bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom));
+    bottom: calc(16px + env(safe-area-inset-bottom));
   }
 }
 

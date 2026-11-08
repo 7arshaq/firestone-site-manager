@@ -12,6 +12,7 @@ import './styles/shell.css';
 import './styles/map.css';
 import './styles/pages.css';
 import './styles/site.css';
+import './styles/drawings.css';
 import App from './App';
 
 createRoot(document.getElementById('root')!).render(

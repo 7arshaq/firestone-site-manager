@@ -1,7 +1,7 @@
 import type { Person, Site } from '../types';
 import type { Data } from '../store/store';
 import { materialRows, progressDelta } from './progress';
-import { firstName, fmtDate, fmtDay, num } from './util';
+import { firstName, fmtDate, fmtDay, num, placeName, today } from './util';
 
 export const ROLE_LABEL = { foreman: 'Foreman', technician: 'Technician', helper: 'Helper' } as const;
 const ROLE_TAG = { foreman: ' (F)', technician: '', helper: ' (H)' } as const;
@@ -41,7 +41,7 @@ export function siteDailyNote(site: Site, data: Data, date: string) {
   const L: string[] = [];
   L.push(`*DAILY PROGRESS — ${fmtDay(date)} ${date.slice(0, 4)}*`);
   L.push(`*${site.name}* (${site.code})`);
-  L.push(`${site.area}, ${site.emirate}`);
+  L.push(`${placeName(site)}`);
   L.push('');
   L.push('*Progress*');
   const parts: string[] = [];
@@ -153,21 +153,24 @@ export function allocationNote(data: Data, date: string) {
   return L.join('\n');
 }
 
-export function materialRequestNote(site: Site, data: Data, keys?: string[]) {
+/** Request text for WhatsApp. With `items`, lists exactly those quantities; otherwise what's short and not yet asked for. */
+export function materialRequestNote(site: Site, data: Data, items?: { key: string; qty: number }[], ref = '', date = today()) {
   const { rows } = materialRows(site, data);
-  const list = rows.filter((r) => (keys ? keys.includes(r.key) : r.state === 'short' || r.state === 'low' || r.state === 'none'));
-  const L: string[] = [`*MATERIAL REQUEST — ${fmtDate(new Date().toISOString().slice(0, 10))}*`, `*${site.name}* (${site.code})`, ''];
+  const want = items ? new Map(items.map((i) => [i.key, i.qty])) : null;
+  const list = rows
+    .map((r) => ({ r, qty: want ? (want.get(r.key) ?? 0) : r.toRequest }))
+    .filter(({ r, qty }) => qty > 0 && (want || r.state === 'short' || r.state === 'low' || r.state === 'none'));
+  const L: string[] = [`*MATERIAL REQUEST${ref ? ` ${ref}` : ''} — ${fmtDate(date)}*`, `*${site.name}* (${site.code})`, ''];
   let last = '';
-  for (const r of list) {
+  for (const { r, qty } of list) {
     if (r.group !== last) {
       L.push(`_${r.group}_`);
       last = r.group;
     }
-    const need = Math.max(r.toDeliver, 0) || Math.max(0, r.estimate - r.used - r.onSite);
-    L.push(`• ${r.name} — ${num(need)} ${r.unit}`);
+    L.push(`• ${r.name} — ${num(qty)} ${r.unit}`);
   }
   L.push('');
-  L.push(`Deliver to: ${site.area}, ${site.emirate}`);
+  L.push(`Deliver to: ${placeName(site)}`);
   L.push(`— ${data.settings.engineerName}${data.settings.engineerPhone ? ` · ${data.settings.engineerPhone}` : ''}`);
   return L.join('\n');
 }

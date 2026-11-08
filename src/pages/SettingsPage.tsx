@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Database, Download, HardDrive, Monitor, Moon, MousePointer2, RotateCcw, ShieldCheck, Smartphone, Sun, Upload } from 'lucide-react';
 import { emptyData, getData, useStore, type Data } from '../store/store';
 import { blobToDataURL, dataURLToBlob, getPhotoBlob, savePhotoBlobs, deleteManyPhotoBlobs } from '../store/photos';
-import { buildSample } from '../data/seed';
 import { Confirm, Seg, toast } from '../components/ui';
 import { Logo } from '../components/Brand';
+import AiKeyCard from '../components/AiKeyCard';
 import { useUi, type ThemePref } from '../store/ui';
 import { downloadBlob, today } from '../lib/util';
 
@@ -89,6 +89,8 @@ export default function SettingsPage() {
       </div>
 
       <div className="settings">
+        <AiKeyCard />
+
         <section className="card">
           <div className="card__head">
             <div>
@@ -241,12 +243,16 @@ export default function SettingsPage() {
           <div className="card__head">
             <div>
               <h2 className="h2">Sample data</h2>
-              <p className="muted small">{sampleLoaded ? 'You are looking at sample sites, crew and history.' : 'Your own data is loaded.'}</p>
+              <p className="muted small">
+                {sampleLoaded
+                  ? 'You are looking at example sites, crew and history.'
+                  : 'Want to see how the app works first? Load example sites, crew and two weeks of history.'}
+              </p>
             </div>
           </div>
           <div className="card__body row row--wrap">
             <button className="btn" onClick={() => setConfirm('sample')}>
-              <RotateCcw /> Reload sample data
+              <RotateCcw /> Load sample data
             </button>
             <button className="btn btn--danger" onClick={() => setConfirm('empty')}>
               <Database /> Clear everything and start empty
@@ -264,6 +270,7 @@ export default function SettingsPage() {
           onConfirm={async () => {
             await deleteManyPhotoBlobs(getData().photos.map((p) => p.id));
             const settingsNow = useStore.getState().settings;
+            const { buildSample } = await import('../data/seed');
             useStore.getState().replaceAll({ ...buildSample(), settings: settingsNow });
             toast('Sample data loaded');
           }}

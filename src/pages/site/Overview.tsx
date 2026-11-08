@@ -9,6 +9,7 @@ import { crewOn } from '../../lib/notes';
 import { TrendChart } from '../../components/Charts';
 import { Avatar, Bar, Empty } from '../../components/ui';
 import { Thumb } from '../../components/Photo';
+import DrawingsCard from '../../components/DrawingsCard';
 import { fmtDay, num, today } from '../../lib/util';
 
 const BUILDING: Record<string, string> = {
@@ -23,7 +24,7 @@ export default function Overview() {
   const t = today();
   const data = useStore(
     useShallow((st) => ({
-      workItems: st.workItems, tasks: st.tasks, allocations: st.allocations, people: st.people,
+      workItems: st.workItems, tasks: st.tasks, adjustments: st.adjustments, allocations: st.allocations, people: st.people,
       overrides: st.overrides, customMaterials: st.customMaterials, txns: st.txns, photos: st.photos,
     })),
   );
@@ -97,8 +98,8 @@ export default function Overview() {
               <span className="label">{fmtDay(t)}</span>
               <h2 className="h2">On site today</h2>
             </div>
-            <Link to="daily" className="btn btn--sm">
-              Daily <ArrowRight />
+            <Link to="team" className="btn btn--sm">
+              Team <ArrowRight />
             </Link>
           </div>
           <div className="card__body stack">
@@ -118,7 +119,7 @@ export default function Overview() {
                 ))}
               </div>
             ) : (
-              <p className="muted small">Nobody is allocated here today. Assign crew from the Daily tab or the Today board.</p>
+              <p className="muted small">Nobody is allocated here today. Choose the crew in the Team tab.</p>
             )}
             {blocked.map((b) => (
               <div key={b.id} className="holdup">
@@ -179,6 +180,8 @@ export default function Overview() {
             {site.notes && <p className="note">{site.notes}</p>}
           </div>
         </section>
+
+        <DrawingsCard siteId={site.id} />
 
         <section className="card">
           <div className="card__head">
