@@ -12,7 +12,6 @@ export function PersonModal({ person, onClose, onSaved, onDelete }: { person?: P
   );
   const submit = () => {
     if (!f.name.trim()) return toast('Enter a name');
-    if (f.pin && !/^\d{4}$/.test(f.pin)) return toast('The crew PIN must be 4 digits');
     const id = save(f);
     onClose();
     if (onSaved) onSaved(id);
@@ -63,11 +62,6 @@ export function PersonModal({ person, onClose, onSaved, onDelete }: { person?: P
         <label className="field">
           <span>Employee no.</span>
           <input className="input" value={f.empNo} onChange={(e) => setF({ ...f, empNo: e.target.value })} />
-        </label>
-        <label className="field span-all">
-          <span>Crew mode PIN</span>
-          <input className="input mono" inputMode="numeric" maxLength={4} value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value.replace(/\D/g, '') })} placeholder="4 digits — leave empty if they won't use this device" />
-          <small>Lets them open their own task list in Crew mode on a shared site phone or tablet.</small>
         </label>
       </div>
     </Modal>

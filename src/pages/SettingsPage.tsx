@@ -6,6 +6,7 @@ import { Confirm, Seg, toast } from '../components/ui';
 import { Logo } from '../components/Brand';
 import AiKeyCard from '../components/AiKeyCard';
 import { useUi, type ThemePref } from '../store/ui';
+import { ROLE_NAME, useAccount } from '../data/accounts';
 import { downloadBlob, today } from '../lib/util';
 import { upgradeFromV1 } from '../store/v1/upgrade';
 import type { V1Data } from '../store/v1/types';
@@ -25,6 +26,7 @@ export default function SettingsPage() {
   const update = useStore((s) => s.updateSettings);
   const photoCount = useStore((s) => s.photos.length);
   const sampleLoaded = useStore((s) => s.sampleLoaded);
+  const account = useAccount();
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [withPhotos, setWithPhotos] = useState(true);
@@ -144,18 +146,6 @@ export default function SettingsPage() {
               <span>Your mobile</span>
               <input className="input" type="tel" value={settings.engineerPhone} onChange={(e) => update({ engineerPhone: e.target.value })} placeholder="05X XXX XXXX" />
             </label>
-            <label className="field span-all">
-              <span>Engineer PIN</span>
-              <input
-                className="input mono"
-                inputMode="numeric"
-                maxLength={4}
-                value={settings.engineerPin}
-                onChange={(e) => update({ engineerPin: e.target.value.replace(/\D/g, '') })}
-                placeholder="4 digits — needed to leave Crew mode"
-              />
-              <small>When set, the crew can't get back to your full view without it.</small>
-            </label>
           </div>
         </section>
 
@@ -244,9 +234,11 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {account?.role === 'dev' && (
         <section className="card">
           <div className="card__head">
             <div>
+              <span className="label">Developer mode</span>
               <h2 className="h2">Sample data</h2>
               <p className="muted small">
                 {sampleLoaded
@@ -264,6 +256,12 @@ export default function SettingsPage() {
             </button>
           </div>
         </section>
+        )}
+        {account && account.role !== 'dev' && (
+          <p className="muted small settings__who">
+            Signed in as <b>{account.name}</b> · {ROLE_NAME[account.role]}
+          </p>
+        )}
       </div>
 
       {confirm === 'sample' && (

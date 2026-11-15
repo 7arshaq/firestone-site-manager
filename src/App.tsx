@@ -1,6 +1,9 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { useSession, useStore } from './store/store';
+import { useStore } from './store/store';
+import { TEAM_ACCOUNTS, useAccount, useAuth } from './data/accounts';
+import Gate from './components/Gate';
+import TechApp from './pages/TechApp';
 import Shell from './components/Shell';
 import { Toasts } from './components/ui';
 import { Lockup } from './components/Brand';
@@ -18,7 +21,6 @@ import Report from './pages/site/Report';
 // these two carry the Claude SDK and the PDF reader, so they load on first visit
 const SiteForm = lazy(() => import('./pages/SiteForm'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-import CrewApp from './pages/CrewApp';
 
 function useHydrated() {
   const [ok, setOk] = useState(useStore.persist.hasHydrated());
@@ -34,26 +36,52 @@ export default function App() {
   useApplyTheme();
   const hydrated = useHydrated();
   const initialised = useStore((s) => s.initialised);
-  const crewMode = useSession((s) => s.crewMode);
+  const people = useStore((s) => s.people);
+  const account = useAccount();
+  const signIn = useAuth((s) => s.signIn);
+  // the sign-in screen: shown at start and after "Lock"; the boot animation plays only the first time
+  const [gate, setGate] = useState(!account);
+  // a tab that was already signed in (e.g. after a reload) has had its start-up animation
+  const played = useRef(!!account);
+  useEffect(() => {
+    if (!account) setGate(true);
+  }, [account]);
 
-  if (!hydrated || !initialised) {
-    return (
-      <div className="boot" role="status">
-        <Lockup className="boot__logo" />
-        <span className="label">Loading your sites</span>
-      </div>
+  // company technicians belong to the team, so the engineer can give them tasks
+  useEffect(() => {
+    if (!hydrated || !initialised) return;
+    useStore.getState().ensurePeople(
+      TEAM_ACCOUNTS.map((a) => ({ id: `acc-${a.id}`, name: a.name, role: 'technician', trade: 'both', phone: '', empNo: '', pin: '', active: true })),
     );
-  }
+  }, [hydrated, initialised, people]);
 
-  if (crewMode) {
-    return (
-      <>
-        <CrewApp />
-        <Toasts />
-      </>
-    );
-  }
+  const sheet = (
+    <>
+      {account && (!hydrated || !initialised) && (
+        <div className="boot" role="status">
+          <Lockup className="boot__logo" />
+          <span className="label">Loading your sites</span>
+        </div>
+      )}
+      {account && hydrated && initialised && (account.role === 'technician' ? <TechApp account={account} /> : <Main />)}
+      {gate && (
+        <Gate
+          intro={!played.current}
+          onSignIn={(a) => signIn(a.id)}
+          onDone={() => {
+            played.current = true;
+            setGate(false);
+          }}
+        />
+      )}
+      <Toasts />
+    </>
+  );
+  return sheet;
+}
 
+/** Site engineer, project manager and developer: the full app */
+function Main() {
   return (
     <>
       <Routes>
@@ -75,7 +103,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
-      <Toasts />
     </>
   );
 }

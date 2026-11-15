@@ -20,6 +20,7 @@ const PEOPLE: Omit<Person, 'id'>[] = [
   { name: 'Rajesh Kumar', role: 'foreman', trade: 'both', phone: '050 412 7781', empNo: 'E-1021', pin: '1111', active: true },
   { name: 'Joel Santos', role: 'foreman', trade: 'FF', phone: '052 390 1147', empNo: 'E-1034', pin: '2222', active: true },
   { name: 'Mohammed Aslam', role: 'foreman', trade: 'FA', phone: '055 781 2290', empNo: 'E-1040', pin: '3333', active: true },
+  { name: 'Hamid Kalam', role: 'technician', trade: 'both', phone: '', empNo: 'E-1160', pin: '', active: true },
   { name: 'Anil Thomas', role: 'technician', trade: 'FA', phone: '050 118 4402', empNo: 'E-1102', pin: '', active: true },
   { name: 'Imran Khan', role: 'technician', trade: 'FA', phone: '056 227 9031', empNo: 'E-1108', pin: '', active: true },
   { name: 'Sajid Ali', role: 'technician', trade: 'FA', phone: '054 330 6612', empNo: 'E-1115', pin: '', active: true },
@@ -49,7 +50,7 @@ function siteSeeds(t: string): SiteSeed[] {
       emirate: 'Abu Dhabi', area: 'Al Reem Island', lat: 24.4975, lng: 54.4045, status: 'active', systems: ['FA', 'FF'],
       startDate: addDays(t, -210), targetDate: addDays(t, 120),
       notes: 'Level 14–20 corridors: ID contractor closing boards early — coordinate access panels before 1st fix.',
-      target: 0.55, crew: ['Rajesh Kumar', 'Anil Thomas', 'Imran Khan', 'Ramesh Bhandari', 'Arjun Nair', 'Suresh Thapa', 'Bilal Hussain'],
+      target: 0.55, crew: ['Rajesh Kumar', 'Hamid Kalam', 'Anil Thomas', 'Imran Khan', 'Ramesh Bhandari', 'Arjun Nair', 'Suresh Thapa', 'Bilal Hussain'],
       areas: ['Basements B1–B3', 'Podium & Level 1–6', 'Levels 7–13', 'Levels 14–20', 'Levels 21–32 & roof'],
       extra: [
         ['variation', 'FA', 'Add 6 smoke detectors in the new L18 store rooms (VO-03)'],

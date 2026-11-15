@@ -38,7 +38,7 @@ A site engineer running several fire safety installations at once juggles WhatsA
 | **Materials on site** | Type each material the site needs and how much. For each one: needed, requested, delivered, used and on site, with low-stock alerts. Material requests are saved as “requested” until delivered and sent as a WhatsApp message; deliveries carry DN numbers. |
 | **Expenses & photos** | Running costs by category and site in AED. Photos are taken from the phone camera, compressed and kept on the device. |
 | **Reports** | A4 PDF reports (daily site report, weekly summary, materials, expenses) and WhatsApp-formatted notes (daily progress, all-sites summary, manpower allocation). Site reports are in each site's Report tab; the all-sites ones are under Share on the map. |
-| **Crew mode** | A foreman opens their own task list on a shared site phone with a 4-digit PIN. |
+| **Sign in with a company code** | Each person signs in with the code the company gives them. A technician sees only today's tasks, ticked off like a checklist, and the day's photos; the site engineer and project manager see the whole app. **Lock** hands the device to the next person. Codes are kept in `src/data/accounts.ts` — they keep people in the right view but are not security, since anyone can read a web app's files. |
 | **Works offline, light & dark** | Installable PWA; data lives in the browser (IndexedDB) with backup / restore to a file. Light and dark themes, with a bold high-visibility cursor for the white map. |
 
 <table>
@@ -59,7 +59,7 @@ A site engineer running several fire safety installations at once juggles WhatsA
 <p align="center">
   <img src="docs/screenshots/phone-map.png" alt="Phone view of the map" width="260" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/phone-crew-dark.png" alt="Crew mode on a phone" width="260" />
+  <img src="docs/screenshots/phone-crew-dark.png" alt="Technician view on a phone" width="260" />
 </p>
 
 ## Built with
@@ -98,7 +98,7 @@ Pushing to `main` publishes the app to **GitHub Pages** through `.github/workflo
 ```
 src/
   components/   map sheet, shell, dialogs, charts, task cards
-  pages/        map home, add/edit site, settings, crew mode
+  pages/        map home, add/edit site, settings, technician view
   pages/site/   overview, today, team, scope list, materials, expenses, photos, report
   lib/          progress maths, material estimates, PDF and WhatsApp builders
   store/        app data (IndexedDB), photos, display preferences

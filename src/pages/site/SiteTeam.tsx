@@ -248,7 +248,7 @@ function PersonActions({ p, onEdit }: { p: Person; onEdit: () => void }) {
           <Phone />
         </a>
       )}
-      <button className="icon-btn icon-btn--sm" aria-label={`Edit ${p.name}`} title="Edit details or crew PIN" onClick={onEdit}>
+      <button className="icon-btn icon-btn--sm" aria-label={`Edit ${p.name}`} title="Edit details" onClick={onEdit}>
         <Pencil />
       </button>
     </>

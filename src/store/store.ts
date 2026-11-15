@@ -68,6 +68,8 @@ interface Actions {
 
   savePerson: (p: Omit<Person, 'id'> & { id?: string }) => string;
   deletePerson: (id: string) => void;
+  /** adds anyone in the list who isn't in the team yet (matched by name) */
+  ensurePeople: (list: (Omit<Person, 'id'> & { id: string })[]) => void;
 
   addTask: (t: Omit<Task, 'id' | 'updatedAt'>) => string;
   updateTask: (id: string, patch: Partial<Task>) => void;
@@ -190,6 +192,13 @@ export const useStore = create<Store>()(
             : [...s.people, { ...p, id }],
         }));
         return id;
+      },
+      ensurePeople: (list) => {
+        const s = getState();
+        const norm = (n: string) => n.trim().toLowerCase().replace(/\s+/g, ' ');
+        const have = new Set(s.people.map((p) => norm(p.name)));
+        const missing = list.filter((p) => !have.has(norm(p.name)) && !s.people.some((x) => x.id === p.id));
+        if (missing.length) setState({ people: [...s.people, ...missing] });
       },
       deletePerson: (id) =>
         setState((s) => ({
@@ -359,26 +368,3 @@ export const getData = (): Data => {
   for (const k of Object.keys(emptyData()) as (keyof Data)[]) (out as unknown as Record<string, unknown>)[k] = s[k];
   return out;
 };
-
-/* ---------- Crew session (who is using the device right now) ---------- */
-
-interface Session {
-  crewMode: boolean;
-  crewId: string | null;
-  enterCrew: () => void;
-  exitCrew: () => void;
-  setCrew: (id: string | null) => void;
-}
-
-export const useSession = create<Session>()(
-  persist(
-    (setState) => ({
-      crewMode: false,
-      crewId: null,
-      enterCrew: () => setState({ crewMode: true, crewId: null }),
-      exitCrew: () => setState({ crewMode: false, crewId: null }),
-      setCrew: (crewId) => setState({ crewId }),
-    }),
-    { name: 'riser-session', storage: createJSONStorage(() => localStorage) },
-  ),
-);

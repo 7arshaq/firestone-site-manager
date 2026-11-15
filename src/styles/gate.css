@@ -1,0 +1,666 @@
+/* =========================================================
+   Sign-in: boot → code → greeting → hand-off to the app
+   Timeline (intro): mark 0–520ms · FIRE 140ms · STONE 220ms ·
+   lockup rises + keypad arrives at 650ms · after the code: keypad out 200ms,
+   greeting 90 / 140 / 300ms · mark flies into the header at ~1.25s (Gate.tsx)
+   ========================================================= */
+
+.gate {
+  --gate-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  color: var(--ink);
+}
+
+.gate__bg {
+  position: absolute;
+  inset: 0;
+  background: var(--paper);
+}
+
+/* a faint drawing-sheet grid, like the map, fading out towards the edges */
+.gate__bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  --grid: color-mix(in oklab, var(--rule) 45%, transparent);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center;
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 0%, transparent 100%);
+}
+
+.gate__stage {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 34px;
+  width: min(100%, 320px);
+}
+
+/* ---------- lockup ---------- */
+
+.gate__lockup {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  transition: transform 460ms var(--gate-ease);
+}
+
+.gate--boot .gate__lockup {
+  transform: translateY(var(--drop, 170px));
+  transition: none;
+}
+
+.gate__mark {
+  display: block;
+  width: 92px;
+  transform-origin: center;
+}
+
+.gate__mark .logo {
+  display: block;
+  width: 100%;
+}
+
+.gate__name {
+  --name: 22px;
+  letter-spacing: 0.08em;
+}
+
+.gate__fire,
+.gate__stone {
+  display: inline-block;
+}
+
+.gate--intro .gate__mark {
+  animation: gate-mark 520ms var(--gate-ease) both;
+}
+
+.gate--intro .gate__fire {
+  animation: gate-up 380ms var(--gate-ease) 140ms both;
+}
+
+.gate--intro .gate__stone {
+  animation: gate-up 380ms var(--gate-ease) 220ms both;
+}
+
+@keyframes gate-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(6px);
+  }
+}
+
+@keyframes gate-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---------- keypad ---------- */
+
+.gate__panel {
+  position: relative;
+  width: 100%;
+}
+
+.gate--boot .gate__panel {
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+}
+
+.gate--intro.gate--pin .gate__panel {
+  animation: gate-rise 420ms var(--gate-ease) 50ms both;
+}
+
+.gate:not(.gate--intro) .gate__panel {
+  animation: gate-fade 200ms ease-out both;
+}
+
+@keyframes gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes gate-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.gate__pin {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+
+.gate__ask {
+  margin: 0;
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 700;
+  font-size: var(--fs-18);
+}
+
+.gate__dots {
+  display: flex;
+  gap: 14px;
+  height: 16px;
+}
+
+.gate__dots i {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  transition: background 120ms, border-color 120ms, transform 120ms;
+}
+
+.gate__dots i.on {
+  background: var(--ink);
+  transform: scale(1.08);
+}
+
+.gate__dots.is-wrong {
+  animation: shake 300ms;
+}
+
+.gate__dots.is-wrong i {
+  border-color: var(--flame);
+}
+
+.gate__dots.is-wrong i.on {
+  background: var(--flame);
+}
+
+.gate__dots.is-ok i {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.gate__msg {
+  min-height: 1.4em;
+  margin: -4px 0 4px;
+  font-size: var(--fs-13);
+  color: var(--graphite);
+  text-align: center;
+}
+
+.gate__dots.is-wrong + .gate__msg {
+  color: var(--flame);
+}
+
+.gate__keys {
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  gap: 14px 22px;
+}
+
+.gate__keys button {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 500;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms, border-color 120ms, transform 120ms;
+}
+
+.gate__keys button:hover {
+  border-color: var(--rule-strong);
+}
+
+.gate__keys button:active {
+  background: var(--ground);
+  transform: scale(0.94);
+}
+
+.gate__keys button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-shadow);
+}
+
+.gate__keys svg {
+  width: 24px;
+  height: 24px;
+  color: var(--graphite);
+}
+
+/* ---------- signed in: keypad out, greeting in ---------- */
+
+.gate--ok .gate__keys,
+.gate--ok .gate__msg {
+  pointer-events: none;
+}
+
+.gate--greet .gate__pin,
+.gate--leave .gate__pin {
+  animation: gate-out 200ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes gate-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+    visibility: hidden;
+  }
+}
+
+.gate--greet {
+  cursor: pointer;
+}
+
+.gate__hello {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 6px;
+  padding-top: 18px;
+  text-align: center;
+}
+
+.gate__greet {
+  font-size: var(--fs-16);
+  color: var(--graphite);
+  animation: gate-up 380ms var(--gate-ease) 90ms both;
+}
+
+.gate__who {
+  font-family: var(--font-display);
+  font-stretch: 118%;
+  font-weight: 760;
+  font-size: clamp(38px, 11vw, 52px);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  animation: gate-who 520ms var(--gate-ease) 140ms both;
+}
+
+@keyframes gate-who {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.gate__role {
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--brand-wash);
+  color: var(--brand-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: gate-fade 260ms ease-out 300ms both;
+}
+
+/* hand-off: the name and greeting step aside while the mark flies to the header */
+.gate--leave .gate__name,
+.gate--leave .gate__hello {
+  animation: gate-leave 220ms ease-out both;
+}
+
+@keyframes gate-leave {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (max-height: 640px) {
+  .gate__stage {
+    gap: 22px;
+  }
+  .gate__mark {
+    width: 64px;
+  }
+  .gate__keys {
+    grid-template-columns: repeat(3, 64px);
+    gap: 10px 20px;
+  }
+  .gate__keys button {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+/* reduced motion: everything is simply there; only opacity changes */
+@media (prefers-reduced-motion: reduce) {
+  .gate *,
+  .gate *::before,
+  .gate *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition: none !important;
+  }
+  .gate--boot .gate__lockup {
+    transform: none;
+  }
+}
+
+/* =========================================================
+   Technician view — today's tasks and photos
+   ========================================================= */
+
+.tech {
+  min-height: 100dvh;
+  background: var(--ground);
+}
+
+.tech__bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: var(--paper);
+  border-bottom: 3px solid var(--brand);
+}
+
+.tech__id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tech__brand {
+  display: block;
+  flex: none;
+  width: 34px;
+}
+
+.tech__mark {
+  display: block;
+  width: 100%;
+}
+
+.tech__titles {
+  display: grid;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.tech__titles b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-display);
+  font-stretch: 112%;
+  font-weight: 720;
+  font-size: var(--fs-16);
+}
+
+.tech__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.tech__main {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+}
+
+.tech__hello {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.tech__hello p {
+  margin: 4px 0 0;
+}
+
+.tech__count {
+  display: grid;
+  justify-items: end;
+  flex: none;
+}
+
+.tech__count .display {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.tech__count small {
+  font-size: 0.5em;
+  color: var(--graphite);
+}
+
+.tech__all {
+  font-size: var(--fs-13);
+  font-weight: 650;
+  color: var(--exit);
+}
+
+/* the checklist */
+.tech-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tech-tasks li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.tech-tasks label {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 60px;
+  padding: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tech-tasks input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tech-tasks__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--graphite-2);
+  border-radius: 8px;
+  background: var(--paper);
+  color: #fff;
+  transition: background 160ms, border-color 160ms, transform 120ms;
+}
+
+.tech-tasks__box svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 3.2;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 160ms, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tech-tasks label:active .tech-tasks__box {
+  transform: scale(0.92);
+}
+
+.tech-tasks input:focus-visible + .tech-tasks__box {
+  box-shadow: var(--focus-shadow);
+}
+
+.tech-tasks li.is-done .tech-tasks__box {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.tech-tasks li.is-done .tech-tasks__box svg {
+  opacity: 1;
+  transform: none;
+}
+
+.tech-tasks__title {
+  display: block;
+  font-size: var(--fs-16);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tech-tasks li.is-done .tech-tasks__title {
+  color: var(--graphite);
+  text-decoration: line-through;
+  text-decoration-color: var(--graphite-2);
+}
+
+.tech-tasks small {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-13);
+  color: var(--graphite);
+}
+
+.tech-tasks__hold {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--flame);
+  font-weight: 600;
+}
+
+.tech-tasks__hold svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+
+.tech-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.tech-photos img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+}
+
+@media (max-width: 560px) {
+  .tech__btn-text {
+    display: none;
+  }
+  .tech__actions .btn {
+    padding: 0 11px;
+  }
+  .tech .card__head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
+/* =========================================================
+   Signed-in person at the foot of the side bar
+   ========================================================= */
+
+.rail__user {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 10px 2px 8px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rail__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.rail__avatar.is-dev {
+  background: var(--amber);
+  color: #fff;
+  font-size: 10px;
+}
+
+.rail__who {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--graphite);
+  font-weight: 500;
+}
+
+.rail__lock svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rail__user:hover .rail__lock {
+  color: var(--ink);
+}
+
+.settings__who {
+  grid-column: 1 / -1;
+  text-align: center;
+}
